@@ -20,6 +20,8 @@ doesn't use the internet, online map sites, accounts or telemetry.
 ## What you need
 
 - Windows 10 or 11 with Crimson Desert installed (Steam).
+  **Tested with game version 2.03.02** (exe 1.0.0.2976, Steam build 25477059), base game, **no DLC**.
+  Other versions may need an app update, see *Troubleshooting*.
 - A tablet, phone or second computer with a web browser, **on the same Wi-Fi or network as the PC**.
 - About 25 MB of disk space for the map (about 45 MB at high resolution).
 
