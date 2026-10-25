@@ -2,43 +2,67 @@
 
 *Companion Map* for short.
 
+*A vibe-coded project, built with the help of [Claude](https://claude.ai), Anthropic's AI.*
+
 A live map for **Crimson Desert** on your tablet or phone, next to the game. A small Windows app
 reads where you are in the game and shows it on a map in the device's browser: the arrow moves
 and turns with you as you play, with places, shops, Abyss gates and more as markers.
 
-Everything runs on your own PC and home network. The map is made from your own game install,
-and the app doesn't use the internet, online map sites, accounts or telemetry.
+Everything runs on **your own PC and your home network**: your tablet or phone connects **straight to
+the PC over your local Wi-Fi or network**. The map is made from your own game install, and the app
+doesn't use the internet, online map sites, accounts or telemetry.
 
 > Unofficial fan-made tool, not affiliated with or endorsed by Pearl Abyss. Crimson Desert is a
 > trademark of Pearl Abyss Corp. Use at your own risk.
 
+![The live map on a tablet: the player arrow near Hernand with places, shops and challenges from the game data](docs/screenshots/map-live.jpg)
+
 ## What you need
 
 - Windows 10 or 11 with Crimson Desert installed (Steam).
-- A tablet, phone or second computer with a web browser, on the same Wi-Fi or network as the PC.
+- A tablet, phone or second computer with a web browser, **on the same Wi-Fi or network as the PC**.
 - About 25 MB of disk space for the map (about 45 MB at high resolution).
 
 ## Getting started
 
-1. **Start `CompanionMap.exe`.** Windows asks for administrator rights: the app needs them
+1. **Get the app**, in one of two ways:
+   - **Download the prebuilt release** (easiest): get `CompanionMap-<version>-win64.zip` from the
+     [latest release](../../releases/latest), unzip it anywhere and keep the files together. The
+     `PySide6` folder next to the exe holds the Qt libraries (LGPLv3), which you may replace with
+     compatible builds; see `PySide6/LICENSES/README.txt`.
+   - **Build it from source**: see [Building from source](#building-from-source).
+2. **Start `CompanionMap.exe`.** Windows asks for administrator rights: the app needs them
    to read the game's memory. It reads only; it never writes player data or changes the game.
-2. **Import the map** (once, and again after a game update). Go to the **Maps** tab and click
+3. **Import the map** (once, and again after a game update). Go to the **Maps** tab and click
    **Import from game files**. It takes about 2 minutes (high resolution: about 5).
    - If the game is not in a Steam library, click **Game folder…** and pick the Crimson Desert folder.
    - The map and markers are made from your own install and stay on this PC.
-3. **Connect your device.** On the **Connect** tab, scan the QR code with the device's camera, or
-   type the address shown into its browser.
+4. **Connect your device over your local network.** On the **Connect** tab, scan the QR code with
+   the device's camera, or type the address shown into its browser.
    - On iPhone or iPad, add the page to the home screen (Safari: Share → Add to Home Screen) for a
      full-screen app.
    - Many devices can also open it by name: `http://companionmap.local:8788`.
-4. **Play.** The arrow appears as soon as you are in the game world.
+5. **Play.** The arrow appears as soon as you are in the game world.
 
 If the device cannot connect:
 
-- Make sure both are on the same network.
+- Make sure both are **on the same local network**.
 - Click **Settings → Allow in Windows Firewall**.
 - If Windows treats your home Wi-Fi as a *Public* network, the Connect tab says so. Set the network
   to *Private* in Windows network settings.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![A marker card with the game's own description](docs/screenshots/map-marker.jpg) | ![The markers panel: groups and categories you can switch on and off](docs/screenshots/markers-panel.jpg) |
+| Tap a marker for its name, description and distance, and mark it as found. | Markers in foldable groups; switch categories on and off and search by name. |
+| ![The Abyss: floating islands and the bridges between them](docs/screenshots/abyss.jpg) | ![The Windows app's Connect tab with a QR code](docs/screenshots/app-connect.png) |
+| The Abyss, with its islands and bridge routes. | The Windows app: scan the code with your tablet or phone. |
+| ![The Windows app's Maps tab](docs/screenshots/app-maps.png) | <img src="docs/screenshots/phone.jpg" alt="The map on a phone" width="49%"> <img src="docs/screenshots/phone-settings.jpg" alt="The settings on a phone" width="49%"> |
+| Import the map from your own game files in a couple of minutes. | Works on phones too: follow or explore freely, zoom, opacity and more. |
+
+*Screenshots show the map made from the game's own map data; the PC address is an example.*
 
 ## On the map
 
@@ -84,7 +108,7 @@ so it cannot be used for any website. You can remove it from the device at any t
 | This game version is not supported yet | The game was updated and the live position can't be read until the app is updated. Maps and markers still work. |
 | Game updated (Maps tab) | Click **Import from game files** again. |
 | No map yet (on the device) | Import the map on the PC (Maps tab). |
-| Device can't connect | See *Getting started*, step 3. |
+| Device can't connect | See *Getting started*, step 4. |
 
 **Log → Save diagnostics…** writes a text file with the app's state and recent log. It contains
 no personal data beyond your PC's network addresses and folder paths. Attach it to bug reports.
@@ -93,7 +117,7 @@ no personal data beyond your PC's network addresses and folder paths. Attach it 
 
 - Map data, markers, found-progress, profiles and settings are kept in
   `%LOCALAPPDATA%\CompanionMap` (moved there automatically from `CDLiveMapStandalone`, the app's earlier name).
-- Nothing is sent to the internet. Devices talk only to your PC over your local network.
+- Nothing is sent to the internet. Devices talk only to your PC, **over your local network**.
 - Game files are only read, never changed. Imported maps are for your personal use: don't share
   them.
 
@@ -125,9 +149,3 @@ for a demo without the game).
   map importer reads; see [gamedata/NOTICE.md](gamedata/NOTICE.md).
 - Built with Qt for Python (PySide6, LGPLv3), aiohttp, Pillow, cryptography, segno, pymem and
   OpenLayers. Licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Download
-
-Get the latest `CompanionMap-<version>-win64.zip` from the GitHub **Releases** page. Unzip it
-anywhere and start `CompanionMap.exe`. The `PySide6` folder next to the exe holds the Qt libraries
-(LGPLv3), which you may replace with compatible builds; see `PySide6/LICENSES/README.txt`.
