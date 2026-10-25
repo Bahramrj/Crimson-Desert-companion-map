@@ -1,0 +1,17 @@
+{
+  "_comment": "Byte patterns for CrimsonDesert.exe. '??' is a wildcard. Verified on Steam buildid 25477059 (exe 1.0.0.2976). Based on CD_Companion 35aa7f3.",
+  "physics_position": {
+    "_comment": "Upstream hook_e site: movaps xmm0,xmm6 ; subss xmm9,xmm8 ; then addps xmm0,[r13] ; movups [r13],xmm0. [r13] is the player's position vector, rbx the physics entity.",
+    "pattern": "0F 28 C6 F3 45 0F 5C C8 41 0F 58 45 00 41 0F 11 45 00",
+    "patched_pattern": "E9 ?? ?? ?? ?? ?? ?? C8 41 0F 58 45 00 41 0F 11 45 00",
+    "original": "0F 28 C6 F3 45 0F 5C C8",
+    "patch_size": 7,
+    "resume_offset": 8
+  },
+  "world_offset": {
+    "_comment": "vsubps xmm,xmm,[rip+disp32] ; vmovups [reg+0x90],xmm ; call rel32 ; VEX. disp32 at +4, relative to +8. Must be unique.",
+    "pattern": "C5 ?? ?? ?? ?? ?? ?? ?? C5 ?? 11 ?? 90 00 00 00 E8 ?? ?? ?? ?? C5",
+    "disp_offset": 4,
+    "rip_offset": 8
+  }
+}

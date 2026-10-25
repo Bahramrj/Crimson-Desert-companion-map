@@ -1,0 +1,14 @@
+{
+  "name": "Offline Companion Map for Crimson Desert",
+  "short_name": "Companion Map",
+  "description": "Live Crimson Desert map for your tablet or phone, served from your PC.",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "icons": [
+    { "src": "/cdlm/app/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/cdlm/app/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/cdlm/app/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

@@ -1,0 +1,6 @@
+pymem>=1.13,<2
+aiohttp>=3.10,<4
+PySide6-Essentials>=6.8,<7
+segno>=1.6,<2
+Pillow>=12,<14
+cryptography>=44,<52

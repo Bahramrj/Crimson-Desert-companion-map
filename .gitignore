@@ -1,0 +1,12 @@
+vendor/
+.venv/
+__pycache__/
+.tools/
+web/node_modules/
+/build/
+/dist/
+/maps/
+/assets/local/
+*.paz
+*.pamt
+/release/
