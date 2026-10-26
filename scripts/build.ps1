@@ -30,7 +30,7 @@ $data = @(
     "$Root\engine\signatures.json${sep}engine",
     "$Root\engine\paths${sep}engine\paths"
 ) | ForEach-Object { '--add-data', $_ }
-$layout = if ($Release) { @('--onedir', '--contents-directory', '.') } else { @('--onefile') }
+$layout = @(if ($Release) { '--onedir', '--contents-directory', '.' } else { '--onefile' })     # always an array, so @layout splats it
 $dist = if ($Release) { Join-Path $Root 'release' } else { Join-Path $Root 'dist' }
 Step 'PyInstaller' {
     Push-Location $Root

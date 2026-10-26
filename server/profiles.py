@@ -1,4 +1,4 @@
-"""Layout profiles, one JSON file each in <data>/profiles/. See PLAN.md "Layout profiles"."""
+"""Layout profiles, one JSON file each in <data>/profiles/."""
 
 import re
 import time

@@ -9,7 +9,7 @@
 - Resources & treasures: objects placed by type (ore, plants, crafting stations, chests, memory
   fragments, ...), named from gimmick.paloc; off in the marker panel until switched on.
 - Regions: one label per province (Hernand, Pailune, ...) from the world-map region bitmap.
-Positions are float32 x/y/z in the engine's own space (docs/offline-spike.md).
+Positions are float32 x/y/z in the engine's own space.
 """
 
 import logging

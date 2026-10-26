@@ -40,6 +40,9 @@ doesn't use the internet, online map sites, accounts or telemetry.
    **Import from game files**. It takes about 2 minutes (high resolution: about 5).
    - If the game is not in a Steam library, click **Game folder…** and pick the Crimson Desert folder.
    - The map and markers are made from your own install and stay on this PC.
+   - The line under the status boxes shows **Map and game version synced** in green while the map
+     files match the installed game. After a game update it shows both versions and an
+     **Update map files** link.
 4. **Connect your device over your local network.** On the **Connect** tab, scan the QR code with
    the device's camera, or type the address shown into its browser.
    - On iPhone or iPad, add the page to the home screen (Safari: Share → Add to Home Screen) for a
@@ -113,7 +116,7 @@ so it cannot be used for any website. You can remove it from the device at any t
 | --- | --- |
 | Waiting for Crimson Desert | Start the game and load into the world. |
 | This game version is not supported yet | The game was updated and the live position can't be read until the app is updated. Maps and markers still work. |
-| Game updated (Maps tab) | Click **Import from game files** again. |
+| Game version and map files differ (amber line under the status boxes) | Click **Update map files**, or **Import from game files** in the Maps tab. |
 | No map yet (on the device) | Import the map on the PC (Maps tab). |
 | Device can't connect | See *Getting started*, step 4. |
 

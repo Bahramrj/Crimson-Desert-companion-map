@@ -85,6 +85,11 @@ class MainWindow(QMainWindow):
         central = QWidget()
         root = QVBoxLayout(central)
         root.addLayout(self._status_strip())
+        # game version vs. the version the map files were made from (green when they match)
+        self.sync_note = QLabel(visible=False)
+        self.sync_note.setWordWrap(True)
+        self.sync_note.linkActivated.connect(lambda _: self.update_map_files())
+        root.addWidget(self.sync_note)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._connect_tab(), "Connect")
         self.settings_tab = self._settings_tab()
@@ -107,6 +112,7 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self, interval=250, timeout=self.refresh)
         self.timer.start()
         self.refresh()
+        self.refresh_sync()
 
     # ── status strip ────────────────────────────────────────────────
 
@@ -427,6 +433,8 @@ class MainWindow(QMainWindow):
             self.refresh_network(auto=True)
         if self._ticks % 8 == 0:          # calibration done on a device shows up here too
             self.refresh_maps()
+        if self._ticks % 240 == 0:        # every minute: the game may have been patched meanwhile
+            self.refresh_sync()
         if self.tray:
             self.tray.setToolTip(f"{SHORT_NAME} – {self.cards['game'].value.text().split('</span> ')[-1]}")
 
@@ -687,6 +695,7 @@ class MainWindow(QMainWindow):
 
     def _import_finished(self, results, error):
         self.m_progress.setVisible(False)
+        self.refresh_sync()
         self.m_import.setEnabled(True)
         self.m_game_import.setEnabled(self._game_dir() is not None)
         if error:
@@ -730,7 +739,45 @@ class MainWindow(QMainWindow):
         self._game = None
         log.info("Game folder: %s", path or "find via Steam")
         self.refresh_maps()
+        self.refresh_sync()
         return True
+
+    def sync_status(self):
+        """(text, kind) for the main page: the game's version against the map files made from it.
+        kind "ok" (green) when they match, "warn" with an update link when not; None without an install."""
+        if self._import and self._import.is_alive():
+            return "Updating map files from the game …", "muted"
+        game = self._game_dir()
+        if game is None:
+            return None
+        try:
+            version = Archive(game).version()
+        except (ArchiveError, OSError):
+            return None
+        made = sorted({m.get("gameVersion") or "?" for m in self.backend.maps.list() if m["source"] == "A" and m.get("fixed")})
+        link = '<a href="update">Update map files</a>'
+        if not made:
+            return f"Game version {version} · no map files made from the game yet. {link}", "warn"
+        if made != [version]:
+            return f"Game version {version} · map files {', '.join(made)}. {link}", "warn"
+        return f"Map and game version synced ({version})", "ok"
+
+    def refresh_sync(self):
+        status = self.sync_status()
+        self.sync_note.setVisible(status is not None)
+        if status:
+            text, kind = status
+            self.sync_note.setText(text)
+            if self.sync_note.objectName() != kind:
+                self.sync_note.setObjectName(kind)
+                self.sync_note.setStyleSheet(STYLE)          # re-apply so the new colour shows
+
+    def update_map_files(self):
+        """The main page's "Update map files" link: the Maps tab's game import."""
+        self.tabs.setCurrentWidget(self.maps_tab)
+        started = self.import_game()
+        self.refresh_sync()
+        return started
 
     def _game_status(self, maps):
         game = self._game_dir()
@@ -911,6 +958,7 @@ QMainWindow, QWidget { font-size: 10pt; }
 #bigUrl { font-size: 18pt; font-weight: 700; padding: 8px 0; }
 #qr { background: white; border: 1px solid palette(mid); border-radius: 8px; }
 #warn { color: #b45309; }
+#ok { color: #15803d; font-weight: 600; }
 #muted { color: palette(placeholder-text); font-size: 9pt; }
 QPushButton { padding: 6px 14px; }
 QPushButton#primary { font-weight: 700; }
