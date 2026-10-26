@@ -16,7 +16,8 @@ const SOURCE_LABEL = { A: "your game files", B: "download", C: "own capture" } a
 
 const SEARCH_LIMIT = 40;
 // Panel sections, in this order (gamedata/markers.py GROUPS); other groups follow, "My markers" last.
-const GROUP_ORDER = ["Regions", "Locations", "Services", "Activities", "Abyss", "Rest & travel", "Treasures", "Crafting", "Mining", "Gathering"];
+const GROUP_ORDER = ["Regions", "Locations", "Services", "Activities", "Quests", "Abyss", "Rest & travel", "Treasures",
+  "Collectibles", "Items", "Books & recipes", "Enemies", "Crafting", "Mining", "Gathering", "Herbs", "Fruits & vegetables"];
 
 type SheetKind = "markers" | "profiles" | "settings";
 type ButtonKey = "follow" | "recenter" | "zoomIn" | "zoomOut" | "realm" | "markers" | "profiles" | "settings";

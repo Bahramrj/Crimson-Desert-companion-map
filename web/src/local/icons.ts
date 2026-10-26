@@ -52,17 +52,26 @@ const GLYPHS: Record<string, string> = {
   totem: "M9 3h6v4H9zM8 8h8v4H8zm1 5h6v8H9z",
   arcade: "M11 3h2v8h-2zm1-1a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM4 13h16v7H4z",
   mercury: "M12 3c3 5 6 8 6 12a6 6 0 0 1-12 0c0-4 3-7 6-12z",
+  // families for imported sets: quest-*, book-*, enemy-*
+  quest: "M10 3h4l-1 11h-2zm2 14a2 2 0 1 1 0 4 2 2 0 0 1 0-4z",
+  book: "M4 5h6a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H4zm16 0h-6a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h6z",
+  enemy: "M12 3a8 8 0 0 1 8 8c0 3-2 5-3 6v3H7v-3c-1-1-3-3-3-6a8 8 0 0 1 8-8zM9 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
 };
 /** Categories drawn with another category's glyph. */
 const SAME_GLYPH: Record<string, string> = {
   "craft-bonfire": "rest", "craft-forge": "blacksmith", "small-box": "chest", "boss-fragment": "memory-fragment",
   "sealed-artifact": "abyss-artifact", facility: "building", "repair-shop": "work", "house-site": "house",
   transporter: "rest-point",
+  // imported categories and families that fit an existing glyph
+  item: "goods", "key-item": "goods", "kuku-pot": "goods", collectible: "abyss-artifact", mount: "stable",
+  skill: "meditation", minigame: "arcade", "puzzle-clue": "puzzle", "weapon-display": "equipment",
+  "treasure-map": "region", shrine: "temple", "hidden-space": "cave", "hidden-passage": "cave", stronghold: "fort",
+  "witch-hideout": "totem", "palmar-pill": "mercury",
 };
 
 function glyphOf(category: string): string {
   const family = category.split("-")[0];
-  return GLYPHS[category] ?? GLYPHS[SAME_GLYPH[category]] ?? GLYPHS[family] ?? DOT;
+  return GLYPHS[category] ?? GLYPHS[SAME_GLYPH[category] ?? SAME_GLYPH[family]] ?? GLYPHS[family] ?? DOT;
 }
 const DOT = "M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z";
 
