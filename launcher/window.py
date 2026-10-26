@@ -97,8 +97,9 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(lambda _: self.tabs.currentWidget() is self.settings_tab and self.refresh_firewall())
         self._import = None
         self._game = None          # (install dir or None,) once looked up
-        self._categories = {}      # adapter name -> Windows network category (looked up in the background)
-        self._categories_for = None
+        self._adapters = None      # windows_adapters(): hardware or not, network category; None until looked up
+        self._adapters_busy = False
+        self._adapters_new = False
         root.addWidget(self.tabs)
         self.setCentralWidget(central)
 
@@ -154,8 +155,12 @@ class MainWindow(QMainWindow):
         copy = QPushButton("Copy link", clicked=lambda: QGuiApplication.clipboard().setText(self.current_url()))
         open_ = QPushButton("Open in browser",
                             clicked=lambda: QDesktopServices.openUrl(QUrl(self.current_url() or self.backend.local_url())))
+        refresh = QPushButton("Refresh network", clicked=lambda: self.refresh_network())
+        refresh.setToolTip("Look again for this PC's network addresses, after changing Wi-Fi or turning a VPN on or off. "
+                           "This also happens by itself every few seconds.")
         buttons.addWidget(copy)
         buttons.addWidget(open_)
+        buttons.addWidget(refresh)
         buttons.addStretch()
         side.addLayout(buttons)
         self.name_hint = QLabel()
@@ -189,6 +194,10 @@ class MainWindow(QMainWindow):
         self.no_lan.setObjectName("warn")
         self.no_lan.setWordWrap(True)
         side.addWidget(self.no_lan)
+        self.net_note = QLabel(visible=False)
+        self.net_note.setObjectName("muted")
+        self.net_note.setWordWrap(True)
+        side.addWidget(self.net_note)
         side.addStretch()
         layout.addLayout(side, 1)
         return tab
@@ -410,10 +419,12 @@ class MainWindow(QMainWindow):
             self.cards["realm"].set("–")
         self.cards["rate"].set(f"{snap['rate']:.0f} / s")
 
-        self._fill_urls()
+        self._fill_urls(force=self._adapters_new)
         self.no_lan.setVisible(not snap["urls"])
         self._update_qr()
         self._ticks += 1
+        if self._ticks % 20 == 0:         # every 5 s: another Wi-Fi, a VPN on or off
+            self.refresh_network(auto=True)
         if self._ticks % 8 == 0:          # calibration done on a device shows up here too
             self.refresh_maps()
         if self.tray:
@@ -428,7 +439,10 @@ class MainWindow(QMainWindow):
         if key == self._raw_urls and not force:
             return
         self._raw_urls = key
-        adapters = support.adapter_names()
+        self._adapters_new = False
+        if self._adapters is None and not self._adapters_busy:
+            self._lookup_adapters()
+        adapters = support.adapter_names(self._adapters or {})
         shown, hidden = support.device_urls(urls, adapters, recommended_ip=default_route_ip())
         self.url_combo.blockSignals(True)
         self.url_combo.clear()
@@ -436,8 +450,9 @@ class MainWindow(QMainWindow):
             self.url_combo.addItem(text, url)
         self.url_combo.blockSignals(False)
         self.url_combo.setVisible(self.url_combo.count() > 1)
-        self.url_hint.setText(f"{hidden} address{'es' if hidden != 1 else ''} of virtual adapters (VMware, WSL, "
-                              "Hyper-V, VPN, …) hidden: other devices can't reach them." if hidden else "")
+        self.url_hint.setText(f"{hidden} address{'es' if hidden != 1 else ''} of virtual adapters and VPNs (VMware, "
+                              "WSL, Hyper-V, VPN, …) hidden: other devices can't reach them. With a VPN on, allow "
+                              "local network access in the VPN app if devices can't connect." if hidden else "")
         self.url_hint.setVisible(bool(hidden))
         name = self.backend.name_url(secure)
         self.name_hint.setText(f"Also by name on most devices: {name}" if name else "")
@@ -451,14 +466,42 @@ class MainWindow(QMainWindow):
             self.setup_qr.setChecked(False)
         self._check_network(adapters)
 
+    def _lookup_adapters(self):
+        """Ask Windows which adapters are real hardware and which networks are Public (about 1 s, in the
+        background); the address list is redrawn when the answer arrives."""
+        self._adapters_busy = True
+
+        def work():
+            try:
+                self._adapters = support.windows_adapters()
+            except Exception:              # no adapter details: names alone decide
+                self._adapters = self._adapters or {}
+            finally:
+                self._adapters_busy = False
+                self._adapters_new = True
+        threading.Thread(target=work, name="net-adapters", daemon=True).start()
+
+    def refresh_network(self, auto=False):
+        """Pick up a changed network: listen on the current addresses and look at the adapters again."""
+        changed = self.backend.refresh_network()
+        if changed or not auto:
+            if not self._adapters_busy:
+                self._lookup_adapters()
+            self._raw_urls = None
+        if changed:
+            urls = ", ".join(u.split("//", 1)[-1].rstrip("/") for u in self.backend.urls()) or "no network address"
+            self.net_note.setText(f"Network changed: now listening on {urls}. Connected devices reconnect by themselves.")
+        elif not auto:
+            self.net_note.setText("Network checked: no change.")
+        if changed or not auto:
+            self.net_note.setVisible(True)
+            QTimer.singleShot(8000, lambda: self.net_note.setVisible(False))
+        return changed
+
     def _check_network(self, adapters):
         """Warn when the recommended network is a Windows "Public" network (the firewall rule covers Private ones)."""
         names = {name for name, kind in adapters.values() if kind != "virtual"}
-        if names != self._categories_for:
-            self._categories_for = names
-            threading.Thread(target=lambda: setattr(self, "_categories", support.network_categories()),
-                             name="net-categories", daemon=True).start()
-        public = sorted(n for n in names if self._categories.get(n) == "Public")
+        public = sorted(n for n in names if (self._adapters or {}).get(n, {}).get("category") == "Public")
         self.net_warn.setText(
             f"Windows treats “{', '.join(public)}” as a <b>public</b> network, so it may block other devices. On your "
             "home network, set it to Private: <a href='ms-settings:network-status'>Network settings</a> → the network → "

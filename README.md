@@ -49,6 +49,9 @@ doesn't use the internet, online map sites, accounts or telemetry.
 If the device cannot connect:
 
 - Make sure both are **on the same local network**.
+- Switched Wi-Fi, or turned a VPN on or off? Click **Refresh network** on the Connect tab (the app also
+  notices by itself within a few seconds). VPN addresses are never offered; with a VPN on, allow
+  *local network access* in the VPN app if devices can't connect.
 - Click **Settings → Allow in Windows Firewall**.
 - If Windows treats your home Wi-Fi as a *Public* network, the Connect tab says so. Set the network
   to *Private* in Windows network settings.

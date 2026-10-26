@@ -39,27 +39,39 @@ class QtLogHandler(logging.Handler):
         self.signal.line.emit(text)
 
 
-# Adapters a tablet on the Wi-Fi cannot reach: VMs, WSL/Hyper-V switches, VPNs, Bluetooth.
-VIRTUAL_ADAPTER = re.compile(r"vEthernet|VMware|VirtualBox|Hyper-V|WSL|Docker|Default Switch|TAP|VPN|Tailscale|"
-                             r"ZeroTier|Npcap|Bluetooth|Loopback|Pseudo", re.I)
+# Adapters a tablet on the Wi-Fi cannot reach: VMs, WSL/Hyper-V switches, VPNs, tunnels, Bluetooth.
+# Matched against the adapter name and, when Windows tells us, its description.
+VIRTUAL_ADAPTER = re.compile(
+    r"vEthernet|VMware|VirtualBox|Hyper-V|WSL|Docker|Default Switch|\bTAP\b|\bTUN\b|Wintun|WireGuard|VPN|"
+    r"NordLynx|OpenVPN|Proton|Mullvad|Surfshark|Windscribe|Cloudflare|\bWARP\b|Tailscale|ZeroTier|Hamachi|"
+    r"AnyConnect|GlobalProtect|PANGP|Forti|Juniper|Pulse Secure|SonicWall|SoftEther|WAN Miniport|Npcap|"
+    r"Bluetooth|Loopback|Pseudo", re.I)
 KIND_LABEL = {"wifi": "Wi-Fi", "ethernet": "Ethernet", "other": "Network", "virtual": "Virtual adapter"}
 
 
-def adapter_names():
-    """{ipv4: (adapter name, kind)} from the OS (Qt), kind wifi / ethernet / virtual / other."""
+def adapter_kind(name, qt_kind, info=None):
+    """wifi / ethernet / other / virtual. `qt_kind` is what Qt says; `info` is this adapter's entry from
+    windows_adapters(): a VPN or tunnel often looks like Ethernet to Qt, but Windows knows it is no
+    hardware interface."""
+    description = (info or {}).get("description", "")
+    if qt_kind == "virtual" or VIRTUAL_ADAPTER.search(name) or VIRTUAL_ADAPTER.search(description):
+        return "virtual"
+    if info is not None and info.get("hardware") is False:
+        return "virtual"
+    return qt_kind
+
+
+def adapter_names(details=None):
+    """{ipv4: (adapter name, kind)} from the OS (Qt), kind wifi / ethernet / virtual / other.
+    `details` is windows_adapters() when known (it is slow, so the window looks it up in the background)."""
     from PySide6.QtNetwork import QAbstractSocket, QNetworkInterface
+    T = QNetworkInterface.InterfaceType
     out = {}
     for iface in QNetworkInterface.allInterfaces():
         name, kind = iface.humanReadableName(), iface.type()
-        if VIRTUAL_ADAPTER.search(name) or kind in (QNetworkInterface.InterfaceType.Virtual,
-                                                     QNetworkInterface.InterfaceType.Loopback):
-            label = "virtual"
-        elif kind == QNetworkInterface.InterfaceType.Wifi:
-            label = "wifi"
-        elif kind == QNetworkInterface.InterfaceType.Ethernet:
-            label = "ethernet"
-        else:
-            label = "other"
+        qt_kind = ("virtual" if kind in (T.Virtual, T.Loopback, T.Ppp) else "wifi" if kind == T.Wifi
+                   else "ethernet" if kind == T.Ethernet else "other")
+        label = adapter_kind(name, qt_kind, (details or {}).get(name))
         for entry in iface.addressEntries():
             if entry.ip().protocol() == QAbstractSocket.NetworkLayerProtocol.IPv4Protocol:
                 out[entry.ip().toString()] = (name, label)
@@ -68,7 +80,8 @@ def adapter_names():
 
 def device_urls(urls, adapters=None, recommended_ip=None):
     """The URLs another device can use, best first, as (text, url); plus how many were left out.
-    Virtual adapters are hidden unless nothing else is left."""
+    Virtual adapters (VMs, VPNs) are hidden unless nothing else is left. The default-route address is
+    recommended; when that is a VPN, the first Wi-Fi / Ethernet address is recommended instead."""
     adapters = adapter_names() if adapters is None else adapters
     rows = []
     for url in urls:
@@ -76,11 +89,13 @@ def device_urls(urls, adapters=None, recommended_ip=None):
         name, kind = adapters.get(ip, ("", "other"))
         best = ip == recommended_ip and kind != "virtual"
         rank = (not best, {"wifi": 0, "ethernet": 1, "other": 2, "virtual": 3}[kind])
-        text = f"{url}  –  {name or KIND_LABEL[kind]}" + ("  (recommended)" if best else "")
-        rows.append((rank, kind, text, url))
+        rows.append((rank, kind, name, url))
     rows.sort()
     usable = [r for r in rows if r[1] != "virtual"] or rows
-    return [(text, url) for _, _, text, url in usable], len(rows) - len(usable)
+    recommended = usable[0][3] if usable and usable[0][1] != "virtual" else None
+    shown = [(f"{url}  –  {name or KIND_LABEL[kind]}" + ("  (recommended)" if url == recommended else ""), url)
+             for _, kind, name, url in usable]
+    return shown, len(rows) - len(usable)
 
 
 def qr_pixmap(text, size):
@@ -132,18 +147,36 @@ def firewall_ports(config):
     return tcp, ([5353] if config.mdns else [])
 
 
-def network_categories():
-    """{adapter name: "Public" | "Private" | "DomainAuthenticated"} of the connected networks (Windows)."""
+ADAPTERS_SCRIPT = (
+    "$c = @{}; Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { $c[$_.InterfaceAlias] = "
+    "[string]$_.NetworkCategory }; Get-NetAdapter -IncludeHidden -ErrorAction SilentlyContinue | ForEach-Object { "
+    "$_.Name + '|' + $_.InterfaceDescription + '|' + $_.HardwareInterface + '|' + $c[$_.Name] }")
+
+
+def parse_adapters(text):
+    """`name|description|hardware|category` lines -> {name: {description, hardware, category}}."""
+    out = {}
+    for line in text.splitlines():
+        parts = line.strip().split("|")
+        if len(parts) == 4 and parts[0]:
+            out[parts[0]] = {"description": parts[1], "hardware": parts[2].strip().lower() == "true",
+                             "category": parts[3]}
+    return out
+
+
+def windows_adapters():
+    """{adapter name: {description, hardware, category}} from Windows: whether each adapter is real
+    hardware (VPNs, VMs and tunnels are not) and the network category ("Public" / "Private" /
+    "DomainAuthenticated", or "" when not connected). Takes about a second: call it off the UI thread."""
     if sys.platform != "win32":
         return {}
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                                 "Get-NetConnectionProfile | ForEach-Object { $_.InterfaceAlias + '|' + $_.NetworkCategory }"],
-                                capture_output=True, text=True, timeout=10, creationflags=flags)
+        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ADAPTERS_SCRIPT],
+                                capture_output=True, text=True, timeout=15, creationflags=flags)
     except (OSError, subprocess.TimeoutExpired):
         return {}
-    return dict(line.split("|", 1) for line in result.stdout.splitlines() if "|" in line)
+    return parse_adapters(result.stdout)
 
 
 def firewall_rule_ports():

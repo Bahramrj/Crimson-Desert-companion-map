@@ -57,6 +57,21 @@ class Backend:
         self._submit(self._stop())
         self._submit(self._start(config))
 
+    def network_changed(self):
+        """True when this PC's LAN addresses differ from the ones the server listens on
+        (another Wi-Fi, a VPN connected or disconnected, a cable plugged in)."""
+        return bool(self.config) and not self._fixed_hosts and sorted(bind_hosts()) != sorted(self.hosts)
+
+    def refresh_network(self):
+        """Listen on the current LAN addresses; True if they changed (the server restarts)."""
+        if not self.network_changed():
+            return False
+        old = [h for h in self.hosts if h != LOOPBACK]
+        self.restart(self.config)
+        log.info("Network changed: %s -> %s", ", ".join(old) or "none",
+                 ", ".join(h for h in self.hosts if h != LOOPBACK) or "none")
+        return True
+
     def stop(self):
         try:
             self._submit(self._stop())
