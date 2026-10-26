@@ -6,8 +6,10 @@
 - Points: `reviepointinfo` (meditation spots, rest points, Abyss bridge gates).
 - Points of interest: named objects placed in the levels (shops, Abyss gates and ruins,
   puzzles, challenges, faction buildings), plus the eight town bells from their level files.
+- Resources & treasures: objects placed by type (ore, plants, crafting stations, chests, memory
+  fragments, ...), named from gimmick.paloc; off in the marker panel until switched on.
 - Regions: one label per province (Hernand, Pailune, ...) from the world-map region bitmap.
-Positions are float32 x/y/z in the engine's own space.
+Positions are float32 x/y/z in the engine's own space (docs/offline-spike.md).
 """
 
 import logging
@@ -15,7 +17,7 @@ import re
 
 from gamedata import levels, regions, worldmap
 from gamedata.strings import load_strings, texts_in
-from gamedata.tables import first_position, placements, read_misc, read_table
+from gamedata.tables import first_position, placements, read_misc, read_table, typed_placements
 from mapstore.georef import WORLD, WORLD_SIZE
 
 log = logging.getLogger("cdlivemap.gamedata")
@@ -85,6 +87,59 @@ GROUPS = {
 
 def group_of(category):
     return GROUPS.get(category, "Locations")
+
+
+# Objects placed by type (tables.typed_placements), matched on their gimmickinfo row name; first match wins.
+# (category, category name, panel group, rule). Names on the map are the game's own (gimmick.paloc).
+# Shop tables, Abyss gates / nexuses / bridge gates and management posts are left out: the other sets
+# already have them, with better names.
+RESOURCE_RULES = [
+    ("ore-iron", "Iron", "Mining", r"mine_iron"), ("ore-copper", "Copper", "Mining", r"mine_copper"),
+    ("ore-silver", "Silver", "Mining", r"mine_silver"), ("ore-gold", "Gold", "Mining", r"mine_gold"),
+    ("ore-bismuth", "Bismuth", "Mining", r"mine_bismuth"), ("ore-diamond", "Diamond", "Mining", r"mine_diamond"),
+    ("ore-garnet", "Garnet", "Mining", r"mine_ruby"), ("ore-azurite", "Azurite", "Mining", r"mine_bluestone"),
+    ("ore-bloodstone", "Bloodstone", "Mining", r"mine_redstone"), ("ore-epidote", "Epidote", "Mining", r"mine_greenstone"),
+    ("ore-scolecite", "Scolecite", "Mining", r"mine_whitestone"), ("ore-brimstone", "Brimstone", "Mining", r"gimmick_sulfur_rock"),
+    ("plant-palmar", "Palmar leaves", "Gathering", r"gimmick_jijeongta_leaf"), ("plant-taro", "Taro", "Gathering", r"taro_"),
+    ("plant-amaranth", "Amaranth", "Gathering", r"amaranth_"), ("plant-seaweed", "Red seaweed", "Gathering", r"dulse_"),
+    ("plant-chaya", "Chaya", "Gathering", r"chaya_"), ("plant-prickly-pear", "Prickly pears", "Gathering", r"opuntia_"),
+    ("plant-enset", "Enset", "Gathering", r"ensete_"), ("plant-algae", "Green algae", "Gathering", r"chlorella_"),
+    ("plant-skyroot", "Skyroot vines", "Gathering", r"gimmick_kudzu_vine"), ("plant-rubber", "Rubber", "Gathering", r"rare_collect_rubber"),
+    ("mercury", "Mercury pools", "Gathering", r"gimmick_waterpool"),
+    ("craft-bonfire", "Bonfires", "Crafting", r"gimmick_craft_cook_campfire"),
+    ("craft-cooking", "Special cooking tools", "Crafting", r"gimmick_craft_cook_oven"),
+    ("craft-anvil", "Anvils", "Crafting", r"gimmick_craft_anvil"), ("craft-grindstone", "Grindstones", "Crafting", r"gimmick_tool_blacksmithstone"),
+    ("craft-forge", "Forges", "Crafting", r"craft_smith_"), ("craft-cauldron", "Cauldrons", "Crafting", r"craft_medicine_"),
+    ("craft-loom", "Looms", "Crafting", r"craft_sewing_"), ("craft-workstation", "Workstations", "Crafting", r"carpenter_"),
+    ("well", "Wells", "Crafting", r"gimmick_well_"),
+    ("chest", "Treasure chests", "Treasures", r"itembox_|temple_chest_|safebox_"),
+    ("small-box", "Small boxes", "Treasures", r"gimmick_item_dropset_treasurebox"),
+    ("boss-fragment", "Boss memory fragments", "Treasures", r"item_visione_chip_bossrematch"),
+    ("memory-fragment", "Memory fragments", "Treasures", r"item_visione_chip"),
+    ("sealed-artifact", "Sealed Abyss artifacts", "Treasures", r"item_sealed_artifact"),
+    ("equipment", "Equipment", "Treasures", r"gimmick_equip_|item_basic_|item_spear_equip"),
+    ("donation", "Donation boxes", "Activities", r"gimmick_action_donation"),
+    ("totem", "Witch totems", "Activities", r"hexe_tower"),
+    ("arcade", "Arcade machines", "Activities", r"pinballmachine|clawmachine|cushionballmachine"),
+    ("facility", "Camp facilities", "Locations", r"gimmick_subinner_"),
+    ("repair-shop", "A.T.A.G. repair shops", "Locations", r"gimmick_middle_tunnel"),
+    ("house-site", "House sites", "Rest & travel", r"gimmick_housing_movepoint"),
+    ("transporter", "Transporters", "Rest & travel", r"gimmick_marni_teleportation"),
+]
+RESOURCE_MATCH = [(cat, re.compile(rule, re.I)) for cat, _, _, rule in RESOURCE_RULES]
+
+
+def singular(label):
+    """'Small boxes' -> 'Small box', 'Camp facilities' -> 'Camp facility', 'Anvils' -> 'Anvil'."""
+    for plural, one in (("ies", "y"), ("xes", "x"), ("s", "")):
+        if label.endswith(plural):
+            return label[:-len(plural)] + one
+    return label
+
+
+def resource_category(gimmick):
+    """Category id for a gimmickinfo row name, or None for objects that are not map-worthy."""
+    return next((cat for cat, rule in RESOURCE_MATCH if rule.match(gimmick)), None)
 
 
 POI_CATEGORIES = [
@@ -267,6 +322,41 @@ def points_of_interest(archive, ctx):
     return _set("game-poi", "Points of interest (game data)", archive, cats, markers)
 
 
+def resources(archive, ctx):
+    """Objects placed by type: ore, plants, crafting stations, chests, memory fragments, ...
+    The type is the gimmickinfo row; its English name comes from gimmick.paloc."""
+    types = {r.key: r for r in read_table(archive, "gimmickinfo")}
+    try:
+        strings = load_strings(archive, "gimmick", ctx.get("lang", "eng"))
+    except Exception as e:           # names are a nicety: fall back to the category names
+        log.warning("gimmick names unavailable: %s", e)
+        strings = {}
+    labels = {cat: name for cat, name, _, _ in RESOURCE_RULES}
+    names, markers, seen, skipped = {}, [], set(), 0
+    for key, x, y, z in typed_placements(read_misc(archive, "levelgimmicksceneobjectinfo_misc")):
+        row = types.get(key)
+        cat = row and resource_category(row.name)
+        if not cat:
+            skipped += 1
+            continue
+        mid = f"{row.name}@{x:.2f}:{z:.2f}"
+        if mid in seen:                  # the same object listed twice (sector and content level)
+            continue
+        seen.add(mid)
+        if key not in names:
+            found = texts_in(row.payload, strings, 1) if strings else []
+            names[key] = found[0] if found and "[EMPTY]" not in found[0] else singular(labels[cat])
+        markers.append(_marker(mid, cat, names[key], (x, y, z)))
+    counts = {}
+    for m in markers:
+        counts[m["category"]] = counts.get(m["category"], 0) + 1
+    log.info("resources: %d markers (%s), %d other placed objects skipped", len(markers),
+             ", ".join(f"{c} {n}" for c, n in sorted(counts.items())), skipped)
+    # off by default: thousands of them would bury the map; the marker panel switches them on
+    cats = [{"id": c, "name": n, "group": g, "off": True} for c, n, g, _ in RESOURCE_RULES]
+    return _set("game-resources", "Resources & treasures (game data)", archive, cats, markers)
+
+
 def provinces(archive, ctx):
     """Province names as labels, placed deep inside each province; named after the places in them."""
     labels = regions.province_labels(archive, ctx.get("places", []))
@@ -281,7 +371,7 @@ def _set(set_id, name, archive, categories, markers):
             "categories": [c for c in categories if c["id"] in used], "markers": markers}
 
 
-EXTRACTORS = (places, points_of_interest, revive_points, provinces)   # places first: provinces are named from them
+EXTRACTORS = (places, points_of_interest, revive_points, resources, provinces)   # places first: provinces are named from them
 COAST_SDF = 60       # land layer value: 128 is the coast, 60 is ~40 m out to sea (shipwrecks, piers)
 
 
@@ -312,7 +402,7 @@ def import_markers(archive, store, lang="eng"):
         failures.append(f"names: {e}")
         names = Names.__new__(Names)
         names.strings, names.rows = {}, {}
-    ctx = {"checks": position_checks(archive), "names": names}
+    ctx = {"checks": position_checks(archive), "names": names, "lang": lang}
     for extract in EXTRACTORS:
         try:
             summaries.append(store.save(extract(archive, ctx)))

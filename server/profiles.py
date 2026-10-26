@@ -1,4 +1,4 @@
-"""Layout profiles, one JSON file each in <data>/profiles/."""
+"""Layout profiles, one JSON file each in <data>/profiles/. See PLAN.md "Layout profiles"."""
 
 import re
 import time
@@ -14,15 +14,13 @@ ENUMS = {
     "theme": ("auto", "dark", "light"),
 }
 DEFAULTS = {
-    "types": [], "hide": [],
+    "types": [], "hide": [], "show": [],
     "zoom": None, "follow": True, "rotateWithHeading": False, "hideFound": False,
     "sidebar": "collapsed", "toolbarSide": "bottom", "markerSize": "medium", "theme": "auto",
     "mapOpacity": 1.0, "markerOpacity": 1.0,
 }
 OPACITY = (0.2, 1.0)
 EDITABLE = {"name", *DEFAULTS}
-# Profiles from CD Live Map (online) used TH.GL's filter ids; accepted on input and migrated on read.
-LEGACY = {"thglTypes": "types", "thglHide": "hide", "thglPreset": None}
 MAX_NAME = 60
 MAX_IDS = 2000
 ID_RE = re.compile(r"^[a-z0-9-]{1,80}$")
@@ -36,21 +34,9 @@ class NotFound(KeyError):
     pass
 
 
-def migrate(data):
-    """Rename the online app's thgl* fields; never overwrite a new field that is already set."""
-    if not isinstance(data, dict):
-        return data
-    out = {k: v for k, v in data.items() if k not in LEGACY}
-    for old, new in LEGACY.items():
-        if new and old in data and new not in out:
-            out[new] = data[old]
-    return out
-
-
 def validate(data, partial=False):
     if not isinstance(data, dict):
         raise ProfileError("profile must be an object")
-    data = migrate(data)
     unknown = set(data) - EDITABLE
     if unknown:
         raise ProfileError(f"unknown fields: {', '.join(sorted(unknown))}")
@@ -62,7 +48,7 @@ def validate(data, partial=False):
             if not isinstance(value, str) or not value.strip() or len(value) > MAX_NAME:
                 raise ProfileError(f"name must be 1-{MAX_NAME} characters")
             value = value.strip()
-        elif key in ("types", "hide"):
+        elif key in ("types", "hide", "show"):
             if not isinstance(value, list) or len(value) > MAX_IDS or not all(isinstance(v, str) for v in value):
                 raise ProfileError(f"{key} must be a list of marker category ids")
         elif key == "zoom":
@@ -97,7 +83,7 @@ class ProfileStore:
 
     @staticmethod
     def _upgrade(profile):
-        return {**DEFAULTS, **migrate(profile)} if profile else profile
+        return {**DEFAULTS, **profile} if profile else profile
 
     def list(self):
         items = [self._upgrade(read_json(p)) for p in sorted(self.root.glob("*.json")) if p.name != "_index.json"]

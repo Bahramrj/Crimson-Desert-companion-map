@@ -100,6 +100,28 @@ def placements(data):
     return out
 
 
+# Typed placements in the same table (ore, plants, campfires, chests, ...): a transform block
+#   +0 x y z, +12 quaternion, +28 scale, +40 offset position, +52 offset quaternion, +68 offset scale (1 1 1),
+#   +105 u32 gimmickinfo key (the object's type).
+TYPED_SCALE = re.compile(rb"(?=(?:\x00\x00\x80\x3f){3})")      # the offset scale, three float32 1.0
+TYPED_KEY = 105
+
+
+def typed_placements(data):
+    """[(gimmickinfo key, x, y, z)] of the objects placed by type in levelgimmicksceneobjectinfo_misc."""
+    out, n = [], len(data)
+    for m in TYPED_SCALE.finditer(data):
+        p = m.start() - 68
+        if p < 0 or p + TYPED_KEY + 4 > n:
+            continue
+        x, y, z, qx, qy, qz, qw, sx = struct.unpack_from("<8f", data, p)
+        ox, oy, oz, ow = struct.unpack_from("<4f", data, p + 52)
+        if (WORLD[0] < x < WORLD[2] and WORLD[1] < z < WORLD[3] and Y_RANGE[0] < y < Y_RANGE[1] and 0 < sx < 100
+                and abs(qx * qx + qy * qy + qz * qz + qw * qw - 1) < 0.01 and abs(ox * ox + oy * oy + oz * oz + ow * ow - 1) < 0.01):
+            out.append((struct.unpack_from("<I", data, p + TYPED_KEY)[0], x, y, z))
+    return out
+
+
 def positions(payload):
     """All float32 (x, y, z) triples inside the game world, in payload order (any alignment)."""
     found = []

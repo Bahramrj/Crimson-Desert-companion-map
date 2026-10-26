@@ -36,7 +36,34 @@ const GLYPHS: Record<string, string> = {
   shop: "M4 9l2-5h12l2 5zm0 2h16v9H4zm6 3v6h4v-6z",
   building: "M4 21V8l8-5 8 5v13h-5v-6H9v6z",
   region: "M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zm6 0v12m6-10v12",
+  // resources & treasures (game-resources set); ore-* and plant-* share a glyph, craft-* fall back to "work"
+  ore: "M8 4h8l4 6-8 10-8-10z",
+  plant: "M5 19c0-9 5-14 14-14 0 9-5 14-14 14z",
+  craft: "M14 3l7 7-2 2-2-2-8 8-3-3 8-8-2-2z",
+  "craft-anvil": "M3 7h13c0 3 2 4 5 4v2h-6l-1 3h2v3H8v-3h2l-1-3H6c-2 0-3-2-3-4z",
+  "craft-grindstone": "M12 3a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm0 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM5 19h14v2H5z",
+  "craft-cooking": "M4 10h16v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6zm3-4h10v2H7zm1 13h8v2H8z",
+  "craft-cauldron": "M5 9h14l-1 7a5 5 0 0 1-5 4h-2a5 5 0 0 1-5-4zM4 7h16v2H4zm5-4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z",
+  well: "M5 10h14v10H5zm2 2v6h10v-6zM4 7l8-4 8 4v1H4z",
+  chest: "M4 9a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v2H4zm0 3h7v2h2v-2h7v7H4z",
+  "memory-fragment": "M12 3l5 6-3 12-6-4-2-8z",
+  equipment: "M18 3h3v3L10 17l2 2-1.5 1.5-2-2-3 3L4 21l3-3-2-2 1.5-1.5 2 2z",
+  donation: "M4 10h16v10H4zm6-3h4v2h-4zm-2 7h8v2H8z",
+  totem: "M9 3h6v4H9zM8 8h8v4H8zm1 5h6v8H9z",
+  arcade: "M11 3h2v8h-2zm1-1a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM4 13h16v7H4z",
+  mercury: "M12 3c3 5 6 8 6 12a6 6 0 0 1-12 0c0-4 3-7 6-12z",
 };
+/** Categories drawn with another category's glyph. */
+const SAME_GLYPH: Record<string, string> = {
+  "craft-bonfire": "rest", "craft-forge": "blacksmith", "small-box": "chest", "boss-fragment": "memory-fragment",
+  "sealed-artifact": "abyss-artifact", facility: "building", "repair-shop": "work", "house-site": "house",
+  transporter: "rest-point",
+};
+
+function glyphOf(category: string): string {
+  const family = category.split("-")[0];
+  return GLYPHS[category] ?? GLYPHS[SAME_GLYPH[category]] ?? GLYPHS[family] ?? DOT;
+}
 const DOT = "M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z";
 
 const COLORS: Record<string, string> = {
@@ -46,6 +73,17 @@ const COLORS: Record<string, string> = {
   "abyss-gate": "#7e22ce", "abyss-ruins": "#c026d3", puzzle: "#ca8a04", challenge: "#be123c", bell: "#b45309",
   blacksmith: "#44403c", inn: "#9d174d", stable: "#92400e", seed: "#16a34a", goods: "#0d9488", trader: "#1e40af",
   wanted: "#991b1b", bank: "#a16207", shop: "#4338ca", building: "#334155", region: "#7f1d1d",
+  "ore-iron": "#57534e", "ore-copper": "#c2410c", "ore-silver": "#64748b", "ore-gold": "#ca8a04", "ore-bismuth": "#db2777",
+  "ore-diamond": "#0284c7", "ore-garnet": "#9f1239", "ore-azurite": "#1d4ed8", "ore-bloodstone": "#b91c1c",
+  "ore-epidote": "#4d7c0f", "ore-scolecite": "#78716c", "ore-brimstone": "#a16207",
+  "plant-palmar": "#15803d", "plant-taro": "#7e22ce", "plant-amaranth": "#be185d", "plant-seaweed": "#e11d48",
+  "plant-chaya": "#16a34a", "plant-prickly-pear": "#c026d3", "plant-enset": "#65a30d", "plant-algae": "#0d9488",
+  "plant-skyroot": "#0f766e", "plant-rubber": "#713f12", mercury: "#475569",
+  "craft-bonfire": "#ea580c", "craft-cooking": "#b45309", "craft-anvil": "#44403c", "craft-grindstone": "#57534e",
+  "craft-forge": "#9a3412", "craft-cauldron": "#6d28d9", "craft-loom": "#0e7490", "craft-workstation": "#4d7c0f",
+  well: "#0369a1", chest: "#a16207", "small-box": "#92400e", "memory-fragment": "#0891b2", "boss-fragment": "#be123c",
+  "sealed-artifact": "#c026d3", equipment: "#334155", donation: "#ca8a04", totem: "#581c87", arcade: "#db2777",
+  facility: "#334155", "repair-shop": "#4d7c0f", "house-site": "#0f766e", transporter: "#7c3aed",
 };
 const PALETTE = ["#0e7490", "#7e22ce", "#be123c", "#15803d", "#b45309", "#1d4ed8", "#a21caf", "#4338ca"];
 
@@ -64,7 +102,7 @@ export function iconUrl(category: string, found: boolean): string {
   let url = cache.get(key);
   if (!url) {
     const fill = found ? "#9ca3af" : categoryColor(category);
-    const glyph = found ? "M9.5 16.2 5.8 12.5l1.4-1.4 2.3 2.3 7.3-7.3 1.4 1.4z" : GLYPHS[category] ?? DOT;
+    const glyph = found ? "M9.5 16.2 5.8 12.5l1.4-1.4 2.3 2.3 7.3-7.3 1.4 1.4z" : glyphOf(category);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">`
       + `<circle cx="16" cy="16" r="13" fill="${fill}" stroke="#fff" stroke-width="2.5"/>`
       + `<path transform="translate(6.4 6.4) scale(.8)" fill="#fff" d="${glyph}"/></svg>`;

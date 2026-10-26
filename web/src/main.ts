@@ -16,7 +16,7 @@ const SOURCE_LABEL = { A: "your game files", B: "download", C: "own capture" } a
 
 const SEARCH_LIMIT = 40;
 // Panel sections, in this order (gamedata/markers.py GROUPS); other groups follow, "My markers" last.
-const GROUP_ORDER = ["Regions", "Locations", "Services", "Activities", "Abyss", "Rest & travel"];
+const GROUP_ORDER = ["Regions", "Locations", "Services", "Activities", "Abyss", "Rest & travel", "Treasures", "Crafting", "Mining", "Gathering"];
 
 type SheetKind = "markers" | "profiles" | "settings";
 type ButtonKey = "follow" | "recenter" | "zoomIn" | "zoomOut" | "realm" | "markers" | "profiles" | "settings";
@@ -52,6 +52,7 @@ class App {
   private markerData: MarkerListing | null = null;
   private markerIndex = new Map<string, Marker>();
   private found = new Set<string>();
+  private offKeys = new Set<string>();     // categories hidden until switched on
   private selected: string | null = null;
   private addingByTap = false;
   private query = "";
@@ -272,6 +273,7 @@ class App {
       const [data, progress] = await Promise.all([this.api.markers(), this.api.progress()]);
       this.markerData = data;
       this.markerIndex = new Map(data.markers.map((m) => [`${m.set}:${m.id}`, m]));
+      this.offKeys = new Set(data.sets.flatMap((s) => s.categories.filter((c) => c.off).map((c) => `${s.id}:${c.id}`)));
       this.found = new Set(progress.found);
     } catch (e) {
       this.notify(`Markers not loaded: ${(e as Error).message}`);
@@ -285,9 +287,13 @@ class App {
     return `${m.set}:${m.category}`;
   }
 
+  private catHidden(key: string) {
+    return this.offKeys.has(key) ? !this.layout.show.includes(key) : this.layout.hide.includes(key);
+  }
+
   private isShown(m: Marker) {
     const key = `${m.set}:${m.id}`;
-    return m.realm === this.shownRealm && !this.layout.hide.includes(this.catKey(m))
+    return m.realm === this.shownRealm && !this.catHidden(this.catKey(m))
       && !(this.layout.hideFound && this.found.has(key));
   }
 
@@ -305,8 +311,13 @@ class App {
 
   private setHidden(keys: string[], hidden: boolean) {
     const hide = new Set(this.layout.hide);
-    keys.forEach((k) => (hidden ? hide.add(k) : hide.delete(k)));
+    const show = new Set(this.layout.show);
+    for (const k of keys) {
+      if (this.offKeys.has(k)) { if (hidden) show.delete(k); else show.add(k); }
+      else if (hidden) hide.add(k); else hide.delete(k);
+    }
     this.layout.hide = [...hide].sort();
+    this.layout.show = [...show].sort();
     this.saveLayout();
     this.updateMarkers();
   }
@@ -442,7 +453,7 @@ class App {
   /** A foldable panel section: header with all/none checkbox and counts, then its categories. */
   private categoryGroup(group: string, cats: { key: string; id: string; name: string }[], count: Map<string, [number, number]>) {
     const keys = cats.map((c) => c.key);
-    const shown = keys.filter((k) => !this.layout.hide.includes(k)).length;
+    const shown = keys.filter((k) => !this.catHidden(k)).length;
     const total = keys.reduce((n, k) => n + count.get(k)![0], 0);
     const done = keys.reduce((n, k) => n + count.get(k)![1], 0);
     const open = this.prefs.openGroups.includes(group);
@@ -461,7 +472,7 @@ class App {
       const [n, f] = count.get(c.key)!;
       const box = h("input", { type: "checkbox", "data-testid": `cat-${c.key}`,
         onchange: (e: Event) => this.setHidden([c.key], !(e.target as HTMLInputElement).checked) });
-      box.checked = !this.layout.hide.includes(c.key);
+      box.checked = !this.catHidden(c.key);
       return h("label", { class: "cat-row" }, box, h("img", { class: "cat-icon", src: iconUrl(c.id, false), alt: "" }),
         h("span", { class: "cat-name" }, c.name), h("span", { class: "muted" }, `${f}/${n}`));
     }) : [];
@@ -556,7 +567,7 @@ class App {
   private applyProfile(p: Profile, announce = true) {
     this.layout = {
       follow: p.follow, rotateWithHeading: p.rotateWithHeading, markerSize: p.markerSize,
-      toolbarSide: p.toolbarSide, theme: p.theme, sidebar: p.sidebar, hide: [...p.hide], hideFound: p.hideFound,
+      toolbarSide: p.toolbarSide, theme: p.theme, sidebar: p.sidebar, hide: [...p.hide], show: [...(p.show ?? [])], hideFound: p.hideFound,
       mapOpacity: p.mapOpacity ?? 1, markerOpacity: p.markerOpacity ?? 1,
     };
     this.prefs.lastProfileId = p.id;
@@ -608,7 +619,7 @@ class App {
     }
     let ok = 0;
     for (const p of list) {
-      const { id: _id, createdAt: _c, updatedAt: _u, ...fields } = p;   // old thgl* fields are migrated by the server
+      const { id: _id, createdAt: _c, updatedAt: _u, ...fields } = p;
       try { await this.api.createProfile(fields as Profile); ok++; } catch { /* skipped */ }
     }
     this.notify(`Imported ${ok} of ${list.length} profiles`);

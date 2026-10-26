@@ -7,6 +7,8 @@ export interface Profile {
   name: string;
   types: string[];
   hide: string[];
+  /** Categories that are off by default (`off`) and switched on. */
+  show: string[];
   zoom: number | null;
   follow: boolean;
   rotateWithHeading: boolean;
@@ -54,7 +56,8 @@ export interface MapListing {
   active: Record<Realm, string | null>;
 }
 
-export interface MarkerCategory { id: string; name: string; group?: string }
+/** `off`: hidden until switched on in the panel (big game sets such as ore and plants). */
+export interface MarkerCategory { id: string; name: string; group?: string; off?: boolean }
 
 export interface MarkerSet {
   id: string;

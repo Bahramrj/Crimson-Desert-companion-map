@@ -8,6 +8,6 @@ from concurrent.futures.thread import ThreadPoolExecutor
 
 # Python 3.15 + PySide6 6.12: after PySide6 is imported, concurrent.futures.ThreadPoolExecutor
 # stays an unresolved 'lazy_import' object, so asyncio's run_in_executor and getaddrinfo
-# (DNS for the TH.GL proxy) raise TypeError. Bind the real classes back onto the package.
+# raise TypeError. Bind the real classes back onto the package.
 concurrent.futures.ThreadPoolExecutor = ThreadPoolExecutor
 concurrent.futures.ProcessPoolExecutor = ProcessPoolExecutor

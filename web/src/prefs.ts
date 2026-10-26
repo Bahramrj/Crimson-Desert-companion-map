@@ -4,7 +4,7 @@ import type { Profile } from "./api";
 
 export type RealmMode = "auto" | "ask" | "manual";
 
-export type Layout = Pick<Profile, "follow" | "rotateWithHeading" | "markerSize" | "toolbarSide" | "theme" | "sidebar" | "hide" | "hideFound"
+export type Layout = Pick<Profile, "follow" | "rotateWithHeading" | "markerSize" | "toolbarSide" | "theme" | "sidebar" | "hide" | "show" | "hideFound"
   | "mapOpacity" | "markerOpacity">;
 
 export interface Prefs {
@@ -19,7 +19,7 @@ const KEY = "cdlm.prefs";
 
 export const DEFAULT_LAYOUT: Layout = {
   follow: true, rotateWithHeading: false, markerSize: "medium", toolbarSide: "bottom", theme: "auto", sidebar: "collapsed",
-  hide: [], hideFound: false, mapOpacity: 1, markerOpacity: 1,
+  hide: [], show: [], hideFound: false, mapOpacity: 1, markerOpacity: 1,
 };
 
 export function loadPrefs(): Prefs {
