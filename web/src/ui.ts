@@ -53,7 +53,8 @@ export function segmented<T extends string>(name: string, options: readonly [T, 
 }
 
 export function toggle(label: string, checked: boolean, onChange: (v: boolean) => void, testid?: string): HTMLElement {
-  const input = h("input", { type: "checkbox", "data-testid": testid, onchange: (e: Event) => onChange((e.target as HTMLInputElement).checked) });
+  const input = h("input", { type: "checkbox", role: "switch", "data-testid": testid,
+    onchange: (e: Event) => onChange((e.target as HTMLInputElement).checked) });
   input.checked = checked;
   return h("label", { class: "toggle" }, h("span", {}, label), input);
 }

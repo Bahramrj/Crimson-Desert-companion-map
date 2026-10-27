@@ -6,8 +6,8 @@
 
 A live map for **Crimson Desert** on your tablet or phone, next to the game. A small Windows app
 reads where you are in the game and shows it on a map in the device's browser: the arrow moves
-and turns with you as you play, with places, shops, Abyss gates, ore, plants, crafting stations,
-chests and more as markers.
+and turns with you as you play, with places, shops, Abyss gates and cressets, ore, plants, crafting
+stations, chests, animals and more as markers.
 
 Everything runs on **your own PC and your home network**: your tablet or phone connects **straight to
 the PC over your local Wi-Fi or network**. The map is made from your own game install, and the app
@@ -81,7 +81,7 @@ If the device cannot connect:
   realms; a realm you pick by hand stays until you tap Follow.
 - **Markers**: show or hide categories by group, search, mark markers as found (shared by every
   device), and add your own markers. You can switch the province names off here. Mining, Gathering,
-  Crafting and Treasures (about 16 000 markers) start switched off; tick the ones you want.
+  Crafting, Treasures and Animals (about 18 000 markers) start switched off; tick the ones you want.
 - **Settings**: rotate the map with your heading, the arrow size, map and marker opacity,
   the theme and the toolbar position.
 - **Profiles**: save a layout (zoom, filters, opacity, …) and apply it on any device.

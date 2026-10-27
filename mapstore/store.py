@@ -128,12 +128,13 @@ class MapStore:
                             name or Path(path).stem, source, licence, game_version, fixed_georef)
 
     def import_rendered(self, render, size, realm, name, source="A", licence="", game_version=None,
-                        fixed_georef=None, replace=None, progress=None):
-        """New map from a tile renderer (see tiler.build_from); `replace` deletes that map afterwards."""
+                        fixed_georef=None, replace=None, progress=None, quality=85):
+        """New map from a tile renderer (see tiler.build_from); `replace` deletes that map afterwards.
+        `quality` is the WebP quality of the tiles."""
         self._check(realm, source, licence)
         w, h = size
-        result = self._create(lambda tiles: tiler.build_from(render, w, h, tiles, progress=progress), size, realm,
-                              name, source, licence, game_version, fixed_georef)
+        result = self._create(lambda tiles: tiler.build_from(render, w, h, tiles, quality=quality, progress=progress),
+                              size, realm, name, source, licence, game_version, fixed_georef)
         if replace and replace != result["id"]:
             try:
                 self.delete(replace)

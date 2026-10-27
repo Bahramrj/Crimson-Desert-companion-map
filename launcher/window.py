@@ -57,8 +57,8 @@ class StatusCard(QFrame):
         self.value.setObjectName("cardValue")
         self.value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(2)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(3)
         layout.addWidget(self.title)
         layout.addWidget(self.value)
 
@@ -80,10 +80,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.setWindowIcon(app_icon())
         self.resize(820, 620)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(style_sheet(is_dark()))
 
         central = QWidget()
         root = QVBoxLayout(central)
+        root.setContentsMargins(16, 14, 16, 12)
+        root.setSpacing(10)
         root.addLayout(self._status_strip())
         # game version vs. the version the map files were made from (green when they match)
         self.sync_note = QLabel(visible=False)
@@ -118,7 +120,7 @@ class MainWindow(QMainWindow):
 
     def _status_strip(self):
         grid = QGridLayout()
-        grid.setSpacing(8)
+        grid.setSpacing(10)
         self.cards = {key: StatusCard(title) for key, title in (
             ("game", "Game"), ("server", "Server"), ("clients", "Clients"),
             ("pos", "X / Y / Z"), ("realm", "Realm"), ("rate", "Update rate"))}
@@ -131,6 +133,8 @@ class MainWindow(QMainWindow):
     def _connect_tab(self):
         tab = QWidget()
         layout = QHBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(20)
         self.qr = QLabel()
         self.qr.setFixedSize(300, 300)
         self.qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -138,8 +142,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.qr, 0, Qt.AlignmentFlag.AlignTop)
 
         side = QVBoxLayout()
-        intro = QLabel("<b>Open the map on your tablet or phone</b><br>Scan the code with its camera, or type the "
-                       "address in its browser. It must be on the same Wi-Fi or network as this PC.")
+        side.setSpacing(8)
+        heading = QLabel("Open the map on your tablet or phone")
+        heading.setObjectName("heading")
+        side.addWidget(heading)
+        intro = QLabel("Scan the code with its camera, or type the address in its browser. "
+                       "It must be on the same Wi-Fi or network as this PC.")
         intro.setWordWrap(True)
         side.addWidget(intro)
         self.scheme = QComboBox()
@@ -159,6 +167,8 @@ class MainWindow(QMainWindow):
         side.addWidget(self.url_label)
         buttons = QHBoxLayout()
         copy = QPushButton("Copy link", clicked=lambda: QGuiApplication.clipboard().setText(self.current_url()))
+        copy.setObjectName("primary")
+        copy.setToolTip("Copy the address to paste it into a message or another device")
         open_ = QPushButton("Open in browser",
                             clicked=lambda: QDesktopServices.openUrl(QUrl(self.current_url() or self.backend.local_url())))
         refresh = QPushButton("Refresh network", clicked=lambda: self.refresh_network())
@@ -770,7 +780,8 @@ class MainWindow(QMainWindow):
             self.sync_note.setText(text)
             if self.sync_note.objectName() != kind:
                 self.sync_note.setObjectName(kind)
-                self.sync_note.setStyleSheet(STYLE)          # re-apply so the new colour shows
+                self.sync_note.style().unpolish(self.sync_note)   # re-apply the style for the new name
+                self.sync_note.style().polish(self.sync_note)
 
     def update_map_files(self):
         """The main page's "Update map files" link: the Maps tab's game import."""
@@ -950,16 +961,62 @@ cryptography (Apache 2.0 / BSD), segno (BSD), pymem (MIT) and OpenLayers (BSD 2-
 reader follows formats documented by CrimsonDesertModdingTools and CDMW Archive Lite (MIT).</p>
 """
 
-STYLE = """
-QMainWindow, QWidget { font-size: 10pt; }
-#card { background: palette(base); border: 1px solid palette(mid); border-radius: 8px; }
-#cardTitle { color: palette(placeholder-text); font-size: 8pt; text-transform: uppercase; }
+def is_dark():
+    """Windows (or Qt) runs in dark mode."""
+    hints = QGuiApplication.styleHints()
+    if hasattr(hints, "colorScheme"):
+        return hints.colorScheme() == Qt.ColorScheme.Dark
+    return QGuiApplication.palette().window().color().lightness() < 128
+
+
+def style_sheet(dark=False):
+    """The window's style: system colours via palette() so light and dark mode both work, one accent
+    colour, flat tabs, primary / secondary buttons, framed sections and banner-style status lines."""
+    c = {"accent": "#2563eb", "accent_hover": "#1d4ed8", "on_accent": "#ffffff",
+         "ok_bg": "rgba(34, 197, 94, 0.16)" if dark else "#dcfce7", "ok": "#86efac" if dark else "#166534",
+         "warn_bg": "rgba(245, 158, 11, 0.16)" if dark else "#fef3c7", "warn": "#fcd34d" if dark else "#92400e",
+         "hover": "rgba(255, 255, 255, 0.06)" if dark else "rgba(15, 23, 42, 0.05)",
+         "border": "rgba(255, 255, 255, 0.14)" if dark else "rgba(15, 23, 42, 0.16)"}
+    return """
+QMainWindow, QWidget { font-family: "Segoe UI Variable Text", "Segoe UI"; font-size: 10pt; }
+QToolTip { padding: 4px 8px; }
+
+#card { background: palette(base); border: 1px solid %(border)s; border-radius: 10px; }
+#cardTitle { color: palette(placeholder-text); font-size: 8pt; font-weight: 600; text-transform: uppercase; }
 #cardValue { font-size: 11pt; font-weight: 600; }
-#bigUrl { font-size: 18pt; font-weight: 700; padding: 8px 0; }
-#qr { background: white; border: 1px solid palette(mid); border-radius: 8px; }
-#warn { color: #b45309; }
-#ok { color: #15803d; font-weight: 600; }
+
+#heading { font-size: 13pt; font-weight: 600; }
+#bigUrl { font-size: 18pt; font-weight: 700; padding: 6px 0; }
+#qr { background: white; border: 1px solid %(border)s; border-radius: 12px; }
 #muted { color: palette(placeholder-text); font-size: 9pt; }
-QPushButton { padding: 6px 14px; }
-QPushButton#primary { font-weight: 700; }
-"""
+#ok { color: %(ok)s; background: %(ok_bg)s; border-radius: 6px; padding: 6px 10px; font-weight: 600; }
+#warn { color: %(warn)s; background: %(warn_bg)s; border-radius: 6px; padding: 6px 10px; }
+
+QTabWidget::pane { border: 1px solid %(border)s; border-radius: 10px; top: -1px; background: palette(window); }
+QTabBar::tab { padding: 8px 16px; margin-right: 2px; border: none; border-bottom: 2px solid transparent;
+               color: palette(placeholder-text); background: transparent; }
+QTabBar::tab:hover { color: palette(text); }
+QTabBar::tab:selected { color: palette(text); border-bottom: 2px solid %(accent)s; font-weight: 600; }
+
+QPushButton { padding: 6px 14px; min-height: 20px; border: 1px solid %(border)s; border-radius: 6px;
+              background: palette(button); color: palette(button-text); }
+QPushButton:hover { background: %(hover)s; }
+QPushButton:pressed, QPushButton:checked { background: palette(midlight); }
+QPushButton:focus { border: 1px solid %(accent)s; }
+QPushButton:disabled { color: palette(placeholder-text); }
+QPushButton#primary { background: %(accent)s; color: %(on_accent)s; border: 1px solid %(accent)s; font-weight: 600; }
+QPushButton#primary:hover { background: %(accent_hover)s; border-color: %(accent_hover)s; }
+QPushButton#primary:disabled { background: palette(midlight); color: palette(placeholder-text); border-color: %(border)s; }
+
+QGroupBox { font-weight: 600; border: 1px solid %(border)s; border-radius: 10px; margin-top: 14px; padding: 14px 12px 10px; }
+QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }
+QGroupBox QLabel, QGroupBox QCheckBox { font-weight: normal; }
+QHeaderView::section { padding: 6px 8px; border: none; border-bottom: 1px solid %(border)s; background: palette(base);
+                       font-weight: 600; }
+QProgressBar { border: 1px solid %(border)s; border-radius: 6px; text-align: center; min-height: 16px; }
+QProgressBar::chunk { background: %(accent)s; border-radius: 5px; }
+""" % c
+
+
+STYLE = style_sheet(False)
+

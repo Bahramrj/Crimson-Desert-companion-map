@@ -105,13 +105,19 @@ function clusterStyle(count: number): Style {
   });
 }
 
+// OpenLayers picks the tile level by CSS pixels, so on a 2x screen every map pixel would be stretched
+// over 2x2 device pixels. There the 512 px tiles are declared as 2x tiles of 256 CSS px: one map pixel
+// per device pixel, as sharp as the screen (and 4x the tiles per view, which the LAN handles easily).
+const HIDPI = typeof window !== "undefined" && window.devicePixelRatio >= 1.5;
+
 function tileLayer(m: MapLayer): TileLayer<XYZ> {
   const [xmin, , xmax, zmax] = m.bounds;
   const mpp = (xmax - xmin) / m.image[0];
-  const resolutions = Array.from({ length: m.maxZoom + 1 }, (_, z) => mpp * 2 ** (m.maxZoom - z));
-  const tileGrid = new TileGrid({ extent: m.bounds, origin: [xmin, zmax], resolutions, tileSize: m.tileSize });
+  const ratio = HIDPI ? 2 : 1;
+  const resolutions = Array.from({ length: m.maxZoom + 1 }, (_, z) => ratio * mpp * 2 ** (m.maxZoom - z));
+  const tileGrid = new TileGrid({ extent: m.bounds, origin: [xmin, zmax], resolutions, tileSize: m.tileSize / ratio });
   return new TileLayer({
-    source: new XYZ({ url: m.tiles, projection: PROJECTION, tileGrid, wrapX: false, interpolate: true }),
+    source: new XYZ({ url: m.tiles, projection: PROJECTION, tileGrid, tilePixelRatio: ratio, wrapX: false, interpolate: true }),
     extent: m.bounds,
     preload: 1,
   });

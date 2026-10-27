@@ -8,11 +8,15 @@
   puzzles, challenges, faction buildings), plus the eight town bells from their level files.
 - Resources & treasures: objects placed by type (ore, plants, crafting stations, chests, memory
   fragments, ...), named from gimmick.paloc; off in the marker panel until switched on.
+- Animals: where wild animals spawn (`stageinfo` LevelSequencerSpawn_WildAnimal_* rows), one marker
+  per area for the named species (boars, bison, eagles, ...); generic kinds ("medium land animal",
+  "cliff bird") are left out.
 - Regions: one label per province (Hernand, Pailune, ...) from the world-map region bitmap.
 Positions are float32 x/y/z in the engine's own space.
 """
 
 import logging
+import math
 import re
 
 from gamedata import levels, regions, worldmap
@@ -33,21 +37,33 @@ BELL_TOWNS = ("Hernand", "Pailune", "Calphade", "Tashkalp", "Demeniss", "Delesyi
 REGIONS = {"Her": "Hernand", "Dem": "Demeniss", "Del": "Delesyia", "Kwe": "Kweiden", "Crim": "Crimson Desert",
            "CD": "Crimson Desert", "Cal": "Calphade", "AbyssIsland": "Abyss", "HyperSpace": "Hyperspace"}
 
-# first matching rule wins; keywords are CamelCase words of the internal name
+# first matching rule wins; keywords are words of the internal name, then of the English name
 PLACE_RULES = [
     ("rest", "Rest areas", ("RestArea",)),
     ("gate", "Gates", ("Gate",)),
     ("castle", "Castles & manors", ("Castle", "Manor", "Palace", "Keep")),
-    ("fort", "Forts & watchtowers", ("Fort", "Outpost", "Watchtower", "Tower", "Beacon", "Post", "Watch", "Garrison")),
+    ("trade", "Trading posts & markets", ("Trading", "Market", "Marketplace", "Guildhouse", "Bazaar", "Exchange", "Tradehouse")),
+    ("fort", "Forts & watchtowers", ("Fort", "Fortress", "Outpost", "Watchtower", "Tower", "Beacon", "Post", "Watch",
+                                     "Garrison", "Barracks", "Stronghold", "Armory", "Training")),
     ("camp", "Camps & hideouts", ("Camp", "Hideout", "Den", "Lair")),
     ("cave", "Caves", ("Cave", "Cavern", "Grotto", "Hollow")),
-    ("ruins", "Ruins", ("Ruins", "Ruin", "Shipwreck", "Wreck", "Abandoned")),
-    ("temple", "Temples & sanctums", ("Temple", "Sanctum", "Shrine", "Sanctuary", "Chapel", "Altar")),
+    ("ruins", "Ruins & tombs", ("Ruins", "Ruin", "Shipwreck", "Wreck", "Abandoned", "Tomb", "Graves", "Grave", "Cemetery",
+                                "Crypt", "Dig")),
+    ("temple", "Temples & churches", ("Temple", "Sanctum", "Shrine", "Sanctuary", "Chapel", "Altar", "Church", "Cathedral",
+                                      "Abbey", "Monastery")),
+    ("fishing", "Fishing spots", ("Fishing", "Fisher", "Fishers")),
     ("village", "Villages & towns", ("Village", "Town", "City", "Harbor", "Harbour", "Port", "Hamlet")),
     ("work", "Farms, mines & workshops", ("Farm", "Ranch", "Mill", "Sawmill", "Quarry", "Mine", "Factory", "Workshop",
                                           "Saddlery", "Smithy", "Dock", "Fishing", "Vineyard", "Orchard", "Station")),
     ("house", "Houses & cabins", ("Cabin", "House", "Hut", "Lodge", "Inn")),
 ]
+# craftsmen and works named by their trade ("Warspike Spearmaker", "Totesmith Tannery")
+CRAFT_WORDS = ("maker", "makers", "smith", "craftshop", "works", "tannery", "dyehouse", "bindery", "mappery", "apothecary",
+               "depot", "storage", "pasture", "winery", "plantation", "foundry", "scrapyard", "warehouse", "pottery",
+               "farmhouse")
+LANDMARK = ("landmark", "Landmarks", ("Lake", "Oasis", "Forest", "Woods", "Gorge", "Pass", "Rock", "Rocks", "Tree", "Eldertree",
+                                      "Valley", "Canyon", "Falls", "Waterfall", "Peak", "Hill", "Cliff", "Cliffs", "Spring",
+                                      "Springs", "Bridge", "Island", "Nest", "Grove", "Marsh", "Swamp", "Dunes", "Wetlands"))
 OTHER_PLACE = ("place", "Other places")
 
 # The Abyss artifact ruins in this table are the same objects as AbyssRuins_* placements (0 m apart),
@@ -79,7 +95,8 @@ SHOP_KINDS = {
 GROUPS = {
     "rest": "Rest & travel", "meditation": "Rest & travel", "rest-point": "Rest & travel",
     "abyss-gate": "Abyss", "abyss-ruins": "Abyss", "abyss-bridge": "Abyss", "bell": "Abyss",
-    "puzzle": "Activities", "challenge": "Activities", "region": "Regions",
+    "puzzle": "Activities", "challenge": "Activities", "region": "Regions", "fishing": "Activities", "trade": "Services",
+    "abyss-cresset": "Abyss",
     "blacksmith": "Services", "inn": "Services", "stable": "Services", "seed": "Services", "goods": "Services",
     "trader": "Services", "wanted": "Services", "bank": "Services", "shop": "Services",
 }
@@ -137,17 +154,50 @@ def singular(label):
     return label
 
 
+# Wild animal spawns (stageinfo): LevelSequencerSpawn_WildAnimal_m<x>_m<z>_<n>_Doc_<kind>[_NN]. The kind
+# names the species for the big game; the rest are generic ("Land_Bird_Medium") and not marked.
+ANIMAL_STAGE = re.compile(r"LevelSequencerSpawn_WildAnimal_m\d+_m\d+_\d+_Doc_(\w+?)(?:_\d+)?$", re.I)
+ANIMALS = [   # (category, category name, marker name, kind pattern)
+    ("animal-boar", "Boars", "Boar", r"land_boar"), ("animal-bison", "Bison", "Bison", r"land_bison"),
+    ("animal-eagle", "Eagles", "Eagle", r"land_eagle"), ("animal-gazelle", "Gazelles", "Gazelle", r"land_gazelle"),
+    ("animal-deer", "Pronghorn deer", "Pronghorn deer", r"land_pronghorndeer"),
+    ("animal-goat", "Goats & sheep", "Goats & sheep", r"land_goat"),
+    ("animal-ibex", "Alpine ibex", "Alpine ibex", r"land_alpineibex"),
+    ("animal-komodo", "Komodo dragons", "Komodo dragon", r"land_komododragon"),
+    ("animal-rhino", "Rhinos", "Rhino", r"land_rhino"), ("animal-turtle", "Turtles", "Turtle", r"land_turtle"),
+    ("animal-camel", "Camels", "Camel", r"land_camel"), ("animal-bear", "Bears", "Bear", r"land_bear"),
+    ("animal-elephant", "Elephants", "Elephant", r"land_elephant"),
+    ("animal-flamingo", "Flamingos", "Flamingo", r"waterside_flamingo"),
+    ("animal-butterfly", "Butterflies", "Butterflies", r"pof_butterfly"), ("animal-firefly", "Fireflies", "Fireflies", r"land_firefly"),
+]
+ANIMAL_MATCH = [(cat, name, re.compile(rule, re.I)) for cat, _, name, rule in ANIMALS]
+HERD_M = 75.0                   # spawn points of one species this close are one area
+STAGE_PLACEHOLDER = (2.0, 204.2588)   # x, y every stage row also carries; never a real spot
+
+
+def animal_kind(stage_name):
+    """(category, marker name) for a wild-animal spawn stage, or None (other stages, generic kinds)."""
+    m = ANIMAL_STAGE.match(stage_name)
+    if not m:
+        return None
+    return next(((cat, name) for cat, name, rule in ANIMAL_MATCH if rule.match(m.group(1))), None)
+
+
 def resource_category(gimmick):
     """Category id for a gimmickinfo row name, or None for objects that are not map-worthy."""
     return next((cat for cat, rule in RESOURCE_MATCH if rule.match(gimmick)), None)
 
 
 POI_CATEGORIES = [
-    ("abyss-gate", "Abyss gates"), ("abyss-ruins", "Abyss ruins"), ("puzzle", "Puzzles"), ("challenge", "Challenges"),
+    ("abyss-gate", "Abyss gates"), ("abyss-ruins", "Abyss ruins"), ("abyss-cresset", "Abyss Cressets (secret places)"),
+    ("puzzle", "Puzzles"), ("challenge", "Challenges"),
     ("bell", "Bells"), ("blacksmith", "Blacksmiths"), ("inn", "Inns"), ("stable", "Stables & wagons"),
     ("seed", "Seed dealers"), ("goods", "General stores & food"), ("trader", "Traders & black markets"),
     ("wanted", "Wanted boards"), ("bank", "Banks & storage"), ("shop", "Other shops"), ("building", "Faction buildings"),
 ]
+
+
+CRESSET_KNOWLEDGE = "Knowledge_LevelGimmickIcon_StandStone"
 
 
 def words(camel):
@@ -179,14 +229,29 @@ def place_name(internal):
     return spell(parts) or internal
 
 
-def place_category(internal):
-    parts = internal.split("_")
-    tail = "_".join(parts[2:] or parts[1:])
-    tokens = set(words(tail.replace("_", " ")))
+def _rule_match(tokens, text):
     for cat, _, keys in PLACE_RULES:
         # single words match whole words ("Den" is not "Garden"); CamelCase keys match as substrings
-        if any(k in tokens or (sum(c.isupper() for c in k) > 1 and k in tail) for k in keys):
+        if any(k in tokens or (sum(c.isupper() for c in k) > 1 and k in text) for k in keys):
             return cat
+    return None
+
+
+def place_category(internal, title=None):
+    """Category of a faction node, from its internal name, else from its English name (`title`)."""
+    parts = internal.split("_")
+    tail = "_".join(parts[2:] or parts[1:])
+    cat = _rule_match(set(words(tail.replace("_", " "))), tail)
+    if cat or not title:
+        return cat or OTHER_PLACE[0]
+    tokens = re.findall(r"[A-Za-z']+", title)
+    cat = _rule_match(set(tokens), title)
+    if cat:
+        return cat
+    if any(t.lower().endswith(CRAFT_WORDS) for t in tokens):
+        return "work"
+    if set(tokens) & set(LANDMARK[2]):
+        return LANDMARK[0]
     return OTHER_PLACE[0]
 
 
@@ -199,6 +264,8 @@ def poi_kind(name):
         return "abyss-ruins", f"Abyss Ruins ({REGIONS.get(m.group(1), spell([m.group(1)]))}) {int(m.group(2))}"
     if parts[0] == "Puzzle" and len(parts) > 1:
         return "puzzle", f"{spell(p.replace('Puzzle', '') for p in parts[1:] if not p.isdigit() and p != 'Puzzle')} puzzle"
+    if parts[:3] == ["Challenge", "Standstone", "Adventure"]:     # the game's "Abyss Cresset" (secret place)
+        return "abyss-cresset", "Abyss Cresset"
     if parts[0] == "Challenge" and len(parts) > 1:
         return "challenge", f"{spell(p for p in parts[1:] if not p.isdigit())} challenge"
     if parts[0] in ("FactionStructure", "Management") and len(parts) > 1:
@@ -270,10 +337,10 @@ def places(archive, ctx):
             continue
         title, notes = ctx["names"].lookup("Knowledge_" + row.name)
         named += title is not None
-        markers.append(_marker(row.name, place_category(row.name), title or place_name(row.name), pos, notes))
+        markers.append(_marker(row.name, place_category(row.name, title), title or place_name(row.name), pos, notes))
     ctx["places"] = markers
     log.info("places: %d markers (%d with game names), %d rows without a position", len(markers), named, skipped)
-    cats = [{"id": c, "name": n, "group": group_of(c)} for c, n, _ in PLACE_RULES] + \
+    cats = [{"id": c, "name": n, "group": group_of(c)} for c, n, _ in PLACE_RULES + [LANDMARK]] + \
         [{"id": OTHER_PLACE[0], "name": OTHER_PLACE[1], "group": group_of(OTHER_PLACE[0])}]
     return _set("game-places", "Places (game data)", archive, cats, markers)
 
@@ -302,6 +369,9 @@ def points_of_interest(archive, ctx):
             continue
         cat, label = kind
         notes = None
+        if cat == "abyss-cresset":            # the game's own title and description
+            title, notes = ctx["names"].lookup(CRESSET_KNOWLEDGE)
+            label = title or label
         if cat == "abyss-gate":
             title, _ = ctx["names"].lookup(re.match(r"AbyssGate_\d+", name).group(0))
             label = title or label
@@ -357,6 +427,35 @@ def resources(archive, ctx):
     return _set("game-resources", "Resources & treasures (game data)", archive, cats, markers)
 
 
+def animals(archive, ctx):
+    """Spawn areas of the named wild species: nearby spawn points of one species become one marker."""
+    def real(x, y, z):
+        return not (abs(x - STAGE_PLACEHOLDER[0]) < 0.01 and abs(y - STAGE_PLACEHOLDER[1]) < 0.01)
+    checks = [lambda *p, c=c: real(*p) and c(*p) for c in ctx["checks"]]
+    areas = {}                                           # category -> [[sum x, sum y, sum z, count, name]]
+    for row in read_table(archive, "stageinfo"):
+        kind = animal_kind(row.name)
+        pos = kind and first_position(row.payload, *checks)
+        if not pos:
+            continue
+        cat, name = kind
+        x, y, z = pos
+        for a in areas.setdefault(cat, []):
+            if math.hypot(a[0] / a[3] - x, a[2] / a[3] - z) <= HERD_M:
+                a[0] += x; a[1] += y; a[2] += z; a[3] += 1
+                break
+        else:
+            areas[cat].append([x, y, z, 1, name])
+    markers = []
+    for cat, found in areas.items():
+        for i, (sx, sy, sz, n, name) in enumerate(found, 1):
+            note = f"Spawn area ({n} spawn point{'s' if n > 1 else ''})"
+            markers.append(_marker(f"{cat}-{i}", cat, name, (sx / n, sy / n, sz / n), note))
+    log.info("animals: %d spawn areas (%s)", len(markers), ", ".join(f"{c} {len(v)}" for c, v in sorted(areas.items())))
+    cats = [{"id": c, "name": n, "group": "Animals", "off": True} for c, n, _, _ in ANIMALS]
+    return _set("game-animals", "Animals (game data)", archive, cats, markers)
+
+
 def provinces(archive, ctx):
     """Province names as labels, placed deep inside each province; named after the places in them."""
     labels = regions.province_labels(archive, ctx.get("places", []))
@@ -371,7 +470,7 @@ def _set(set_id, name, archive, categories, markers):
             "categories": [c for c in categories if c["id"] in used], "markers": markers}
 
 
-EXTRACTORS = (places, points_of_interest, revive_points, resources, provinces)   # places first: provinces are named from them
+EXTRACTORS = (places, points_of_interest, revive_points, resources, animals, provinces)   # places first: provinces are named from them
 COAST_SDF = 60       # land layer value: 128 is the coast, 60 is ~40 m out to sea (shipwrecks, piers)
 
 

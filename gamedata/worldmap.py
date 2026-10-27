@@ -1,10 +1,12 @@
 """World-map basemaps rendered from the game's own SDF map layers.
 
 Each layer is 16 x 16 tiles of 512 x 512 8-bit DDS (`..._<col>_<row>.dds`), 8192 px per side,
-covering the world square in mapstore.georef.WORLD. The game draws its map from these in a
-shader; we do the same once, at import, and store ordinary tiles. SDFs stay sharp when
-upsampled, so rendering at 2x (16384 px, ~1.2 m/px, "default") or 4x (32768 px, ~0.6 m/px,
-"high") gives crisp coasts and roads.
+covering the world square in mapstore.georef.WORLD (the "32768" in the names is shader space; the
+tiles hold no finer mip). The game draws its map from these in a shader; we do the same once, at
+import, and store ordinary tiles. SDFs stay sharp when upsampled: each tile is upsampled in float
+precision and every edge (coast, river, road) gets an anti-aliasing ramp about one output pixel
+wide, so rendering at 2x (16384 px, ~1.2 m/px, "default") or 4x (32768 px, ~0.6 m/px, "high")
+gives crisp coasts and roads.
 
 The Abyss has no island layer: its map art is a set of small stage icons with no placement data.
 Its islands are drawn from the game's Abyss level files instead: every object placed above
@@ -61,17 +63,33 @@ def _lut(lo, hi, strength=1.0):
     return out
 
 
-# Thresholds measured on the layers (S3): roads peak at ~131-143 and fall ~4 per px.
+# Soft layers keep a lookup table: the height tint and the province border band.
 LUT = {
-    "land": _lut(118, 138),
     "height": _lut(90, 180, 0.3),
-    "mountain": _lut(95, 125, 0.5),
-    "wagon": _lut(118, 129, 0.85),
-    "road": _lut(116, 127, 0.95),
     "border": _lut(40, 255, 0.4),
     "island": _lut(104, 124),
     "island_core": _lut(124, 150),
 }
+
+
+# Edges (S3 measurements): the SDF values fall ~3.7 per source pixel at the iso line. Each edge is
+# drawn at the same iso value as before, with a ramp `px` output pixels wide at the render scale.
+SDF_GRADIENT = 3.7
+EDGES = {                     # layer: [(iso value, strength, ramp width in output px)]
+    "land": [(128, 1.0, 1.0)],
+    "mountain": [(102, 0.18, 1.2), (116, 0.22, 6.0)],    # a light tint with a crisp rim, then a softer core
+    "wagon": [(123.5, 0.85, 1.0)],
+    "road": [(121.5, 0.95, 1.0)],
+}
+WEBP_QUALITY = 92             # crisp lines stay clean (q85 shows blocks along them); ~40 KB per Pywel tile
+
+
+def edge(t, iso, scale, strength=1.0, px=1.0):
+    """Alpha (L) of the area above `iso` in a float SDF tile, with an anti-aliasing ramp `px` output pixels wide."""
+    width = max(0.5, px * SDF_GRADIENT / scale)
+    k = 255 / width
+    alpha = t.point(lambda v: v * k - (iso - width / 2) * k).convert("L")     # converting clamps to 0..255
+    return alpha if strength >= 1 else alpha.point(lambda v: round(v * strength))
 
 
 def decode_l8(dds):
@@ -165,13 +183,16 @@ def island_layer(archive, failures=None):
     return img.filter(ImageFilter.GaussianBlur(ISLAND_BLUR / mpp))
 
 
-def _crop(layer, tx, ty, scale):
-    """The source region of output tile (tx, ty), upsampled by `scale` with bilinear filtering."""
+def _crop(layer, tx, ty, scale, precise=False):
+    """The source region of output tile (tx, ty), upsampled by `scale` with bilinear filtering;
+    `precise` upsamples in float (mode F), so narrow edge ramps don't step on 8-bit values."""
     src = TILE / scale
     x0, y0 = tx * src, ty * src
     pad = 2
     box = (math.floor(x0) - pad, math.floor(y0) - pad, math.ceil(x0 + src) + pad, math.ceil(y0 + src) + pad)
     part = layer.crop(box)                           # outside the layer reads as 0 (sea / empty)
+    if precise:
+        part = part.convert("F")
     big = part.resize((round(part.width * scale), round(part.height * scale)), Image.BILINEAR)
     ox, oy = round((x0 - box[0]) * scale), round((y0 - box[1]) * scale)
     return big.crop((ox, oy, ox + TILE, oy + TILE))
@@ -182,15 +203,19 @@ def _ink(base, color, alpha):
 
 
 def pywel_renderer(layers, scale):
+    def edges(key, tx, ty):
+        t = _crop(layers[key], tx, ty, scale, precise=True)
+        return [edge(t, iso, scale, strength, px) for iso, strength, px in EDGES[key]]
+
     def render(tx, ty):
-        t = {k: _crop(layers[k], tx, ty, scale) for k in REALM_LAYERS["pywel"]}
-        land = t["land"].point(LUT["land"])
+        land = edges("land", tx, ty)[0]
         out = Image.new("RGB", (TILE, TILE), SEA)
         _ink(out, PAPER, land)
-        _ink(out, CONTOUR, ImageChops.multiply(t["height"].point(LUT["height"]), land))
-        _ink(out, RIDGE, t["mountain"].point(LUT["mountain"]))
-        _ink(out, WAGON, t["wagon"].point(LUT["wagon"]))
-        _ink(out, ROAD, t["road"].point(LUT["road"]))
+        _ink(out, CONTOUR, ImageChops.multiply(_crop(layers["height"], tx, ty, scale).point(LUT["height"]), land))
+        for alpha in edges("mountain", tx, ty):
+            _ink(out, RIDGE, alpha)
+        _ink(out, WAGON, edges("wagon", tx, ty)[0])
+        _ink(out, ROAD, edges("road", tx, ty)[0])
         if "border" in layers:
             _ink(out, BORDER, ImageChops.multiply(_crop(layers["border"], tx, ty, scale).point(LUT["border"]), land))
         return out
@@ -209,8 +234,8 @@ def abyss_renderer(layers, scale):
         out = Image.merge("RGB", (t.point(r), t.point(g), t.point(b)))
         if islands is not None:
             mask = _crop(islands, tx, ty, scale)
-            edge, core = mask.point(LUT["island"]), mask.point(LUT["island_core"])
-            _ink(out, ISLAND_RIM, edge)                      # a light rim, then the island body inside it
+            rim, core = mask.point(LUT["island"]), mask.point(LUT["island_core"])
+            _ink(out, ISLAND_RIM, rim)                      # a light rim, then the island body inside it
             _ink(out, ISLAND, core)
         return out
     return render
@@ -262,7 +287,7 @@ def import_basemap(archive, store, realm, scale=2, progress=None):
     summary = store.import_rendered(
         RENDERERS[realm](layers, scale), (size, size), realm, NAMES[realm], source="A",
         licence="rendered from your own Crimson Desert install; personal use, do not share",
-        game_version=archive.version(), fixed_georef=geo.world_georef(size), progress=progress)
+        game_version=archive.version(), fixed_georef=geo.world_georef(size), progress=progress, quality=WEBP_QUALITY)
     for old in previous:
         store.delete(old["id"])
     log.info("Imported %s basemap %s (game %s, %d unreadable tiles)", realm, summary["id"], summary["gameVersion"], len(failures))

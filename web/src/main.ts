@@ -4,7 +4,7 @@ import "./styles.css";
 import { Api, ApiError, type MapListing, type MapSummary, type Marker, type MarkerListing, type Profile } from "./api";
 import type { Bridge, LatLng, MapLayer, MapMarker } from "./bridge";
 import { gameToPx, REALMS, type Realm } from "./coord";
-import { categoryColor, iconUrl } from "./local/icons";
+import { iconUrl } from "./local/icons";
 import { createBridge } from "./local/olBridge";
 import { Live, type PositionMsg, type ServerMsg } from "./live";
 import { DEFAULT_LAYOUT, loadPrefs, savePrefs, type Layout, type RealmMode } from "./prefs";
@@ -17,7 +17,8 @@ const SOURCE_LABEL = { A: "your game files", B: "download", C: "own capture" } a
 const SEARCH_LIMIT = 40;
 // Panel sections, in this order (gamedata/markers.py GROUPS); other groups follow, "My markers" last.
 const GROUP_ORDER = ["Regions", "Locations", "Services", "Activities", "Quests", "Abyss", "Rest & travel", "Treasures",
-  "Collectibles", "Items", "Books & recipes", "Enemies", "Crafting", "Mining", "Gathering", "Herbs", "Fruits & vegetables"];
+  "Collectibles", "Items", "Books & recipes", "Enemies", "Animals", "Crafting", "Mining", "Gathering", "Herbs",
+  "Fruits & vegetables"];
 
 type SheetKind = "markers" | "profiles" | "settings";
 type ButtonKey = "follow" | "recenter" | "zoomIn" | "zoomOut" | "realm" | "markers" | "profiles" | "settings";
@@ -32,9 +33,12 @@ class App {
   private chips = h("div", { id: "chips" });
   private toolbar = h("nav", { id: "toolbar", "aria-label": "Menu" });
   private controls = h("div", { id: "controls", "aria-label": "Map controls", role: "group" });
-  private sheet = h("section", { id: "sheet", hidden: true, "aria-live": "polite" });
-  private toast = h("div", { id: "toast", hidden: true, role: "alert" });
-  private card = h("section", { id: "card", hidden: true, "data-testid": "marker-card", "aria-live": "polite" });
+  private sheet = h("section", { id: "sheet", hidden: true, role: "dialog", "aria-modal": "false", "aria-labelledby": "sheet-title" });
+  private toast = h("div", { id: "toast", hidden: true, role: "status", "aria-live": "polite", "aria-atomic": "true" });
+  private card = h("section", { id: "card", hidden: true, "data-testid": "marker-card", role: "region", "aria-label": "Marker details" });
+  private loading = h("div", { id: "loading", role: "status", "data-testid": "loading" },
+    h("span", { class: "spinner", "aria-hidden": "true" }), h("span", {}, "Loading the map…"));
+  private sheetOpener: HTMLElement | null = null;   // focus goes back here when the sheet closes
   private buttons = {} as Record<ButtonKey, HTMLButtonElement>;
 
   private bridge!: Bridge;
@@ -69,7 +73,8 @@ class App {
 
   async start() {
     this.buildToolbar();
-    document.body.append(this.mapEl, this.pill, this.chips, this.controls, this.toolbar, this.sheet, this.card, this.toast);
+    document.body.append(this.mapEl, this.pill, this.chips, this.controls, this.toolbar, this.sheet, this.card, this.toast, this.loading);
+    document.addEventListener("keydown", (e) => this.onKey(e));
     this.bridge = createBridge(this.mapEl);
     this.bridge.onUserPan(() => { if (this.layout.follow) this.setFollow(false); });
     this.bridge.onTap((ll, key) => void this.onMapTap(ll, key));
@@ -89,16 +94,17 @@ class App {
   // ── toolbar and chrome ─────────────────────────────────────────
 
   private buildToolbar() {
-    const make = (key: ButtonKey, name: IconName, label: string, onclick: () => void, prefix = "tb") => {
-      const b = h("button", { type: "button", class: `tb ${key}`, "aria-label": label, title: label, "data-testid": `${prefix}-${key}`, onclick }, icon(name));
+    const make = (key: ButtonKey, name: IconName, label: string, onclick: () => void, prefix = "tb", caption = "") => {
+      const b = h("button", { type: "button", class: `tb ${key}`, "aria-label": label, title: label, "data-testid": `${prefix}-${key}`, onclick },
+        icon(name), caption && h("span", { class: "caption", "aria-hidden": "true" }, caption));
       this.buttons[key] = b;
       return b;
     };
     this.toolbar.append(
       make("realm", "realm", "Switch realm", () => this.showRealm(this.shownRealm === "pywel" ? "abyss" : "pywel", true)),
-      make("markers", "filters", "Markers", () => this.toggleMarkersSheet()),
-      make("profiles", "profiles", "Layout profiles", () => this.openSheet("profiles")),
-      make("settings", "settings", "Settings", () => this.openSheet("settings")),
+      make("markers", "filters", "Markers", () => this.toggleMarkersSheet(), "tb", "Markers"),
+      make("profiles", "profiles", "Layout profiles", () => this.openSheet("profiles"), "tb", "Profiles"),
+      make("settings", "settings", "Settings", () => this.openSheet("settings"), "tb", "Settings"),
     );
     this.buttons.realm.append(h("span", { class: "badge", "data-testid": "realm-badge" }));
     // on the map: follow / free explore, then zoom in, recenter, zoom out
@@ -115,6 +121,20 @@ class App {
     const root = document.documentElement;
     if (this.layout.theme === "auto") delete root.dataset.theme; else root.dataset.theme = this.layout.theme;
     document.body.dataset.toolbar = this.layout.toolbarSide;
+    const dark = this.layout.theme === "dark" || (this.layout.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0b0d11" : "#eef0f4");
+  }
+
+  private onKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (this.sheetKind) {
+      if (this.sheetKind === "markers") { this.layout.sidebar = "collapsed"; this.saveLayout(); }
+      this.closeSheet();
+    } else if (this.selected) this.selectMarker(null);
+    else if (this.calibrating || this.addingByTap) { this.calibrating = null; this.addingByTap = false; }
+    else return;
+    e.preventDefault();
+    this.render();
   }
 
   private saveLayout() {
@@ -148,6 +168,8 @@ class App {
     } catch (e) {
       this.notify(`Maps not loaded: ${(e as Error).message}`);
       return;
+    } finally {
+      this.loading.hidden = true;
     }
     this.bridge.setMap(this.layerFor(this.shownRealm));
     if (this.sheetKind === "settings") this.renderSheet();
@@ -368,14 +390,15 @@ class App {
     const dist = this.pos && this.pos.realm === m.realm ? Math.hypot(this.pos.x - m.x, this.pos.z - m.z) : null;
     this.card.replaceChildren(
       h("div", { class: "card-head" },
-        h("span", { class: "dot", style: `background:${categoryColor(m.category)}` }),
+        h("img", { class: "card-icon", src: iconUrl(m.category, isFound), alt: "" }),
         h("div", { class: "card-title" }, h("strong", { "data-testid": "card-name" }, m.name),
           h("span", { class: "muted" }, [cat?.name ?? m.category, dist != null ? `${dist < 1000 ? dist.toFixed(0) + " m" : (dist / 1000).toFixed(1) + " km"} away` : null]
             .filter(Boolean).join(" · "))),
-        h("button", { type: "button", class: "tb", "aria-label": "Close", onclick: () => this.selectMarker(null) }, icon("close"))),
-      ...(m.notes ? [h("p", { class: "muted" }, m.notes)] : []),
+        h("button", { type: "button", class: "tb", "aria-label": "Close marker details", title: "Close",
+          onclick: () => this.selectMarker(null) }, icon("close"))),
+      ...(m.notes ? [h("p", { class: "notes" }, m.notes)] : []),
       h("div", { class: "row" },
-        h("button", { type: "button", class: `btn small${isFound ? "" : " primary"}`, "data-testid": "card-found",
+        h("button", { type: "button", class: `btn small${isFound ? "" : " primary"}`, "data-testid": "card-found", "aria-pressed": String(isFound),
           onclick: () => void this.setFound(key, !isFound) }, isFound ? "Found ✓ (undo)" : "Mark found"),
         h("button", { type: "button", class: "btn small", onclick: () => this.selectMarker(key, true) }, "Show"),
         m.set === "my-markers" && h("button", { type: "button", class: "btn small danger", onclick: async () => {
@@ -401,21 +424,23 @@ class App {
       if (m.realm === this.shownRealm && m.name.toLowerCase().includes(q)) hits.push([key, m]);
       if (hits.length >= SEARCH_LIMIT) break;
     }
-    if (!hits.length) return [h("p", { class: "muted" }, "No marker with that name here.")];
+    if (!hits.length) return [h("p", { class: "muted empty" }, `No marker called “${this.query.trim()}” in ${REALMS[this.shownRealm].label}.`)];
     return hits.map(([key, m]) => h("button", { type: "button", class: "result", "data-testid": "search-result",
       onclick: () => { this.selectMarker(key, true); } },
-      h("span", { class: "dot", style: `background:${categoryColor(m.category)}` }), m.name,
+      h("img", { class: "cat-icon", src: iconUrl(m.category, false), alt: "" }), h("span", { class: "result-name" }, m.name),
       this.found.has(key) ? h("span", { class: "tag" }, "found") : null));
   }
 
   private markersBody(): HTMLElement[] {
     const results = h("div", { class: "results", "data-testid": "search-results" }, ...this.searchResults());
-    const search = h("input", { type: "search", placeholder: "Search markers", "data-testid": "marker-search", value: this.query,
+    const input = h("input", { type: "search", placeholder: "Search markers", "aria-label": "Search markers", "data-testid": "marker-search",
+      value: this.query, enterkeyhint: "search", autocomplete: "off",
       oninput: (e: Event) => { this.query = (e.target as HTMLInputElement).value; results.replaceChildren(...this.searchResults()); } });
-    search.value = this.query;
+    input.value = this.query;
+    const search = h("div", { class: "search-bar", role: "search" }, input);
     const data = this.markerData;
     if (!data || !data.sets.length) {
-      return [search, h("p", { class: "muted", "data-testid": "markers-none" },
+      return [search, h("p", { class: "muted empty", "data-testid": "markers-none" },
         "No markers yet. On the PC: launcher → Maps → Import from game files, or add your own below."), ...this.addSection()];
     }
     const inRealm = data.markers.filter((m) => m.realm === this.shownRealm);
@@ -427,9 +452,10 @@ class App {
       count.set(this.catKey(m), c);
     }
     const allKeys = [...count.keys()];
-    // categories of every set, gathered into the panel's groups
+    // categories of every set, gathered into the panel's groups; the game's own sets first in each group
     const byGroup = new Map<string, { key: string; id: string; name: string }[]>();
-    for (const set of data.sets) {
+    const sets = [...data.sets].sort((a, b) => Number(b.source === "A") - Number(a.source === "A"));
+    for (const set of sets) {
       for (const c of set.categories) {
         const key = `${set.id}:${c.id}`;
         if (!count.has(key)) continue;
@@ -446,7 +472,7 @@ class App {
         h("button", { type: "button", class: "btn small", "data-testid": "cats-all", onclick: () => this.setHidden(allKeys, false) }, "Show all"),
         h("button", { type: "button", class: "btn small", "data-testid": "cats-none", onclick: () => this.setHidden(allKeys, true) }, "Hide all")),
       toggle("Hide found markers", this.layout.hideFound, (v) => { this.layout.hideFound = v; this.saveLayout(); this.updateMarkers(); }, "set-hide-found"),
-      ...(groups.length ? groups : [h("p", { class: "muted" }, `No markers in ${REALMS[this.shownRealm].label}.`)]),
+      ...(groups.length ? groups : [h("p", { class: "muted empty" }, `No markers in ${REALMS[this.shownRealm].label} yet.`)]),
       ...this.addSection(),
     ];
   }
@@ -475,14 +501,15 @@ class App {
         onchange: (e: Event) => this.setHidden([c.key], !(e.target as HTMLInputElement).checked) });
       box.checked = !this.catHidden(c.key);
       return h("label", { class: "cat-row" }, box, h("img", { class: "cat-icon", src: iconUrl(c.id, false), alt: "" }),
-        h("span", { class: "cat-name" }, c.name), h("span", { class: "muted" }, `${f}/${n}`));
+        h("span", { class: "cat-name" }, c.name), h("span", { class: "muted", title: `${f} of ${n} found` }, `${f}/${n}`));
     }) : [];
     return h("div", { class: `cat-group${open ? " open" : ""}`, "data-testid": "cat-group", "data-group": group },
       h("div", { class: "group-head" }, groupBox,
         h("button", { type: "button", class: "group-fold", "aria-expanded": String(open), "data-testid": `fold-${group}`, onclick: fold },
           h("span", { class: "chevron", "aria-hidden": "true" }, "›"),
           h("span", { class: "group-name" }, group),
-          h("span", { class: "muted" }, `${cats.length} · ${done}/${total}`))),
+          h("span", { class: "count", title: `${cats.length} categories · ${done} of ${total} found`,
+            "aria-label": `${cats.length} categories, ${done} of ${total} found` }, `${done}/${total}`))),
       ...rows);
   }
 
@@ -630,14 +657,26 @@ class App {
   // ── sheets ─────────────────────────────────────────────────────
 
   private openSheet(kind: SheetKind) {
-    this.sheetKind = this.sheetKind === kind ? null : kind;
+    const opening = this.sheetKind !== kind;
+    if (opening && !this.sheetKind) this.sheetOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.sheetKind = opening ? kind : null;
     this.renderSheet();
     this.render();
+    if (opening) this.sheet.querySelector<HTMLElement>("#sheet-title")?.focus({ preventScroll: true });
+    else this.returnFocus();
   }
 
   private closeSheet() {
+    const hadFocus = this.sheet.contains(document.activeElement);
     this.sheetKind = null;
     this.renderSheet();
+    if (hadFocus) this.returnFocus();
+  }
+
+  private returnFocus() {
+    const back = this.sheetOpener;
+    this.sheetOpener = null;
+    if (back && back.isConnected) back.focus({ preventScroll: true });
   }
 
   private renderSheet() {
@@ -649,8 +688,8 @@ class App {
     if (!kind) { this.sheet.replaceChildren(); return; }
     const title = kind === "profiles" ? "Layout profiles" : kind === "markers" ? "Markers" : "Settings";
     this.sheet.replaceChildren(
-      h("div", { class: "sheet-head" }, h("h2", {}, title),
-        h("button", { type: "button", class: "tb", "aria-label": "Close", "data-testid": "sheet-close", onclick: () => {
+      h("div", { class: "sheet-head" }, h("h2", { id: "sheet-title", tabindex: "-1" }, title),
+        h("button", { type: "button", class: "tb", "aria-label": `Close ${title.toLowerCase()}`, title: "Close", "data-testid": "sheet-close", onclick: () => {
           if (this.sheetKind === "markers") { this.layout.sidebar = "collapsed"; this.saveLayout(); }
           this.closeSheet(); this.render();
         } }, icon("close"))),
@@ -698,7 +737,7 @@ class App {
       h("div", { class: "row" }, nameInput, h("button", { type: "button", class: "btn primary", "data-testid": "profile-save", onclick: save }, "Save")),
       h("p", { class: "muted" }, "Saves zoom, follow, rotation, toolbar side, marker size, theme, opacity and the marker filters. Profiles live on the PC, so every device sees them."),
       h("h3", {}, `Profiles (${this.profiles.length})`),
-      ...(rows.length ? rows : [h("p", { class: "muted" }, "No profiles yet.")]),
+      ...(rows.length ? rows : [h("p", { class: "muted empty" }, "No profiles yet. Save the current layout above to make one.")]),
       h("h3", {}, "Backup"),
       h("div", { class: "row" },
         h("button", { type: "button", class: "btn", onclick: () => this.exportProfiles() }, "Export JSON"),
@@ -713,7 +752,7 @@ class App {
     const choices = (this.maps?.maps ?? []).filter((m) => m.realm === realm);
     const out: HTMLElement[] = [h("h3", {}, `Map · ${label}`)];
     if (!map) {
-      out.push(h("p", { class: "muted", "data-testid": "map-none" },
+      out.push(h("p", { class: "muted empty", "data-testid": "map-none" },
         `No map imported for ${label}. On the PC: launcher → Maps → Import image. Until then the grid shows the live position.`));
       return out;
     }
