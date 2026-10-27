@@ -201,7 +201,8 @@ input[type="search"] { width: 100%; padding-left: 40px; -webkit-appearance: none
   background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93a3' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='M16 16l4.5 4.5'/%3E%3C/svg%3E") 12px center / 20px no-repeat; }
 /* the search field stays at the top of the markers sheet while the list scrolls */
 .search-bar { position: sticky; top: 0; z-index: 2; margin: 0 calc(-1 * var(--s5)); padding: var(--s1) var(--s5) var(--s2);
-  background: var(--surface-solid); }
+  /* the same near-opaque surface twice, so rows scrolling underneath don't show through */
+  background: linear-gradient(var(--surface-solid), var(--surface-solid)), var(--surface-solid); }
 
 /* segmented control: a track with the chosen option raised */
 .segmented { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-sm); background: var(--fill); }
