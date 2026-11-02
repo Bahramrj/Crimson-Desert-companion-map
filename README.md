@@ -21,10 +21,10 @@ doesn't use the internet, online map sites, accounts or telemetry.
 ## What you need
 
 - Windows 10 or 11 with Crimson Desert installed (Steam).
-  **Tested with game version 2.03.02** (exe 1.0.0.2976, Steam build 25477059), base game, **no DLC**.
+  **Tested with game version 2.04.05** (exe 1.0.0.3479, Steam build 26361232), base game, **no DLC**.
   Other versions may need an app update, see *Troubleshooting*.
 - A tablet, phone or second computer with a web browser, **on the same Wi-Fi or network as the PC**.
-- About 25 MB of disk space for the map (about 45 MB at high resolution).
+- About 40 MB of disk space for the maps (about 70 MB at high resolution).
 
 ## Getting started
 
@@ -32,12 +32,13 @@ doesn't use the internet, online map sites, accounts or telemetry.
    - **Download the prebuilt release** (easiest): get `CompanionMap-<version>-win64.zip` from the
      [latest release](../../releases/latest), unzip it anywhere and keep the files together. The
      `PySide6` folder next to the exe holds the Qt libraries (LGPLv3), which you may replace with
-     compatible builds; see `PySide6/LICENSES/README.txt`.
+     compatible builds; see `PySide6/LICENSES/README.txt`. What changed in each version is in
+     [CHANGELOG.md](CHANGELOG.md).
    - **Build it from source**: see [Building from source](#building-from-source).
 2. **Start `CompanionMap.exe`.** Windows asks for administrator rights: the app needs them
    to read the game's memory. It reads only; it never writes player data or changes the game.
 3. **Import the map** (once, and again after a game update). Go to the **Maps** tab and click
-   **Import from game files**. It takes about 2 minutes (high resolution: about 5).
+   **Import from game files**. It takes about 4 minutes (high resolution: about 8).
    - If the game is not in a Steam library, click **Game folder…** and pick the Crimson Desert folder.
    - The map and markers are made from your own install and stay on this PC.
    - The line under the status boxes shows **Map and game version synced** in green while the map

@@ -686,6 +686,10 @@ class App {
     this.sheet.hidden = !kind;
     this.sheet.dataset.testid = kind ? `sheet-${kind}` : "";
     if (!kind) { this.sheet.replaceChildren(); return; }
+    // a re-render (live updates) replaces every element: keep the keyboard focus on the same control
+    const focused = this.sheet.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+    const again = focused?.id ? `#${CSS.escape(focused.id)}`
+      : focused?.dataset.testid ? `[data-testid="${CSS.escape(focused.dataset.testid)}"]` : "#sheet-title";
     const title = kind === "profiles" ? "Layout profiles" : kind === "markers" ? "Markers" : "Settings";
     this.sheet.replaceChildren(
       h("div", { class: "sheet-head" }, h("h2", { id: "sheet-title", tabindex: "-1" }, title),
@@ -695,6 +699,7 @@ class App {
         } }, icon("close"))),
       h("div", { class: "sheet-body" }, ...(kind === "profiles" ? this.profilesBody() : kind === "markers" ? this.markersBody() : this.settingsBody())),
     );
+    if (focused) (this.sheet.querySelector<HTMLElement>(again) ?? this.sheet.querySelector<HTMLElement>("#sheet-title"))?.focus({ preventScroll: true });
   }
 
   private profilesBody(): HTMLElement[] {

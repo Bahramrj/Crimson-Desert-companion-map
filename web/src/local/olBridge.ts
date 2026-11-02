@@ -30,7 +30,7 @@ const SIZES = { small: 26, medium: 36, large: 48 } as const;
 const SMOOTH_MS = 90;        // time constant of the arrow's glide between engine updates
 const SNAP_M = 150;          // jumps further than this (fast travel, realm change) are not animated
 const GRID_M = 1000;
-const MAX_RES = (WORLD[2] - WORLD[0]) / 256;     // zoom 0: the whole world in 256 px
+const MAX_RES = 19460 / 256;  // zoom 0: the pre-2.04 world square in 256 px, so saved zoom levels keep their scale
 const DEFAULT_MIN_RES = 0.4;  // m/px; a map may zoom to half its own pixel size, but not less close than this
 const zoomFor = (resolution: number) => Math.log2(MAX_RES / resolution);
 const CLUSTER_ABOVE = 4;     // m/px: cluster markers when zoomed out further than this (~2 000 game markers)

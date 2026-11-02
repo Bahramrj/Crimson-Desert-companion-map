@@ -61,6 +61,7 @@ Copy-Item (Join-Path $Root 'licenses\README-PySide6.txt') (Join-Path $qtLicences
 Copy-Item (Join-Path $Root 'README.md'), (Join-Path $Root 'THIRD_PARTY_NOTICES.md') $app
 Copy-Item (Join-Path $Root 'gamedata\NOTICE.md') (Join-Path $app 'NOTICE-gamedata.md')
 if (Test-Path (Join-Path $Root 'LICENSE')) { Copy-Item (Join-Path $Root 'LICENSE') $app }
+if (Test-Path (Join-Path $Root 'CHANGELOG.md')) { Copy-Item (Join-Path $Root 'CHANGELOG.md') $app }
 $version = & $Py -c "import sys; sys.path.insert(0, r'$Root'); from server import __version__; print(__version__)"
 $zip = Join-Path $dist "CompanionMap-$version-win64.zip"
 if (Test-Path $zip) { Remove-Item $zip }

@@ -12,9 +12,12 @@ points on the least-squares fit leaves a real residual (error) in metres.
 
 import math
 
-# Extent of the game's world-map layers: x -16384..3076, z -11267..8193.
-WORLD = (-16384.0, -11267.0, 3076.0, 8193.0)   # xmin, zmin, xmax, zmax
+# Extent of the game's world-map layers, xmin, zmin, xmax, zmax. From 2.04 the
+# map covers the ocean too: x -19456..11264, z -22528..8192 (the 51200 layers). Up to 2.03 it was
+# x -16384..3076, z -11267..8193 (the 32768 layers); renders of those keep that square.
+WORLD = (-19456.0, -22528.0, 11264.0, 8192.0)
 WORLD_SIZE = WORLD[2] - WORLD[0]
+WORLD_203 = (-16384.0, -11267.0, 3076.0, 8193.0)
 MIN_MPP, MAX_MPP = 0.01, 1000.0
 
 
@@ -27,9 +30,9 @@ def default_georef(width, height):
     return {"origin": [WORLD[0], WORLD[3]], "mpp": WORLD_SIZE / max(width, height)}
 
 
-def world_georef(width):
-    """Exact placement for an image rendered from the game's own world-map layers."""
-    return {"origin": [WORLD[0], WORLD[3]], "mpp": WORLD_SIZE / width}
+def world_georef(width, world=WORLD):
+    """Exact placement for an image rendered from the game's own world-map layers over `world`."""
+    return {"origin": [world[0], world[3]], "mpp": (world[2] - world[0]) / width}
 
 
 def px_to_game(georef, u, v):

@@ -34,7 +34,7 @@ class Config:
     mdns: bool = True                # answer for companionmap.local on the LAN (server/mdns.py)
     rate_hz: int = 30
     start_minimized: bool = False
-    map_quality: str = "default"     # game map import: "default" (16384 px) or "high" (Pywel at 32768 px)
+    map_quality: str = "default"     # game map import: "default" (2x the game layers) or "high" (Pywel at 4x)
     game_dir: str = ""               # Crimson Desert install folder; empty = find it via Steam
 
     @classmethod

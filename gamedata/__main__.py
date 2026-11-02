@@ -38,7 +38,7 @@ def main(argv=None):
     imp.add_argument("--game")
     imp.add_argument("--realm", choices=("pywel", "abyss", "all"), default="all")
     imp.add_argument("--quality", choices=tuple(worldmap.QUALITY), default="default",
-                     help="default: 16384 px (~1 min per realm); high: Pywel at 32768 px (~3.5 min, ~3x disk)")
+                     help="default: 25600 px (~2 min per realm); high: Pywel at 51200 px (~6 min, ~2.5x disk)")
     imp.add_argument("--scale", type=int, choices=worldmap.SCALES, help="render scale for every realm (overrides --quality)")
     imp.add_argument("--what", choices=("all", "maps", "markers"), default="all")
     args = ap.parse_args(argv)

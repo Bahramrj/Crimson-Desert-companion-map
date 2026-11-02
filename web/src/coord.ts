@@ -7,8 +7,9 @@ export const REALMS: Record<Realm, { label: string }> = {
   abyss: { label: "Abyss" },
 };
 
-/** Extent of the game's world-map layers: [xmin, zmin, xmax, zmax]. */
-export const WORLD = [-16384, -11267, 3076, 8193] as const;
+/** Extent of the game's world-map layers from 2.04 (the ocean included): [xmin, zmin, xmax, zmax]
+ * (same as mapstore/georef.py WORLD). */
+export const WORLD = [-19456, -22528, 11264, 8192] as const;
 
 export interface Georef {
   origin: [number, number]; // game [x, z] of the image's top-left corner

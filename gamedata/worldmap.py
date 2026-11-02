@@ -1,12 +1,13 @@
 """World-map basemaps rendered from the game's own SDF map layers.
 
-Each layer is 16 x 16 tiles of 512 x 512 8-bit DDS (`..._<col>_<row>.dds`), 8192 px per side,
-covering the world square in mapstore.georef.WORLD (the "32768" in the names is shader space; the
-tiles hold no finer mip). The game draws its map from these in a shader; we do the same once, at
-import, and store ordinary tiles. SDFs stay sharp when upsampled: each tile is upsampled in float
-precision and every edge (coast, river, road) gets an anti-aliasing ramp about one output pixel
-wide, so rendering at 2x (16384 px, ~1.2 m/px, "default") or 4x (32768 px, ~0.6 m/px, "high")
-gives crisp coasts and roads.
+Each layer is a grid of 512 x 512 8-bit DDS tiles (`..._<col>_<row>.dds`) covering a world square.
+From 2.04 the game draws its map from the `51200x51200` set: 25 x 25 tiles (12 800 px, 2.4 m/px)
+over mapstore.georef.WORLD, which takes in the ocean. Up to 2.03 it used the `32768x32768` set:
+16 x 16 tiles over WORLD_203. The number in the names is shader space; the tiles hold no finer mip.
+The game draws its map from these in a shader; we do the same once, at import, and store ordinary
+tiles. SDFs stay sharp when upsampled: each tile is upsampled in float precision and every edge
+(coast, river, road) gets an anti-aliasing ramp about one output pixel wide, so rendering at 2x
+("default", ~1.2 m/px) or 4x ("high", ~0.6 m/px) gives crisp coasts and roads.
 
 The Abyss has no island layer: its map art is a set of small stage icons with no placement data.
 Its islands are drawn from the game's Abyss level files instead: every object placed above
@@ -20,6 +21,7 @@ import math
 import struct
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -31,17 +33,34 @@ from mapstore.tiler import TILE
 log = logging.getLogger("cdlivemap.gamedata")
 
 LAYER_DIR = "ui/texture/image/worldmap/"
-GRID, SRC_TILE = 16, 512
-SRC_SIZE = GRID * SRC_TILE
+SRC_TILE = 512
 
+
+@dataclass(frozen=True)
+class LayerSet:
+    suffix: str      # in the layer names, e.g. cd_worldmap_land_sdf_51200x51200
+    grid: int        # tiles per side
+    world: tuple     # xmin, zmin, xmax, zmax covered
+
+    @property
+    def size(self):
+        return self.grid * SRC_TILE
+
+    @property
+    def mpp(self):
+        return (self.world[2] - self.world[0]) / self.size
+
+
+LAYER_SETS = (LayerSet("51200x51200", 25, geo.WORLD), LayerSet("32768x32768", 16, geo.WORLD_203))   # newest first
 LAYERS = {
-    "land": "cd_worldmap_land_sdf_32768x32768",
-    "height": "cd_worldmap_blur_height",
-    "road": "cd_worldmap_road_sdf_32768x32768",
-    "wagon": "cd_worldmap_road_wagon_sdf_32768x32768",
-    "mountain": "cd_worldmap_mountain_sdf_32768x32768",
-    "abyss": "cd_worldmap_abyss_hex_sdf_32768x32768",
+    "land": "cd_worldmap_land_sdf_{set}",
+    "road": "cd_worldmap_road_sdf_{set}",
+    "wagon": "cd_worldmap_road_wagon_sdf_{set}",
+    "mountain": "cd_worldmap_mountain_sdf_{set}",
+    "abyss": "cd_worldmap_abyss_hex_sdf_{set}",
 }
+HEIGHT = LayerSet("", 16, geo.WORLD_203)     # cd_worldmap_blur_height: the same 16 x 16 tiles in every version
+HEIGHT_LAYER = "cd_worldmap_blur_height"
 REALM_LAYERS = {"pywel": ("land", "height", "road", "wagon", "mountain"), "abyss": ("abyss",)}
 
 PAPER, SEA = (233, 223, 198), (150, 178, 190)
@@ -107,13 +126,49 @@ def decode_l8(dds):
         return img.convert("L").resize((SRC_TILE, SRC_TILE))
 
 
-def load_layer(archive, key, failures=None):
-    """Stitch one 8192 x 8192 layer. Missing or broken tiles are logged and left at 0."""
-    prefix = LAYER_DIR + LAYERS[key] + "_"
+def layer_set(archive):
+    """The newest layer set the install has (its land tiles exist), else the oldest."""
+    names = {e.path for e in archive.entries("0012")} if "0012" in archive.groups() else set()
+    for s in LAYER_SETS:
+        if f"{LAYER_DIR}{LAYERS['land'].format(set=s.suffix)}_0_0.dds" in names:
+            return s
+    return LAYER_SETS[-1]
+
+
+def load_layer(archive, key, failures=None, layers=None):
+    """Stitch one layer of `layers` (default: layer_set(archive)). Missing or broken tiles are logged
+    and left at 0. The height layer exists only over the pre-2.04 square; it is placed into the set's."""
+    layers = layers or layer_set(archive)
+    if key == "height":
+        return _reproject(_stitch(archive, key, HEIGHT_LAYER, HEIGHT.grid, failures), HEIGHT, layers)
+    return _stitch(archive, key, LAYERS[key].format(set=layers.suffix), layers.grid, failures)
+
+
+HEIGHT_FEATHER_M = 1200.0    # the height lines fade out over this distance at the edge of their square
+
+
+def _reproject(img, src, dst):
+    """`img` covering src.world, scaled and placed onto dst's square; outside reads as 0, and the
+    edge fades out over HEIGHT_FEATHER_M instead of stopping on a straight line."""
+    if src.world == dst.world and img.width == dst.size:
+        return img
+    k = (src.world[2] - src.world[0]) / img.width / dst.mpp
+    part = img.resize((round(img.width * k), round(img.height * k)), Image.BILINEAR)
+    feather = max(1, round(HEIGHT_FEATHER_M / dst.mpp))
+    mask = Image.new("L", part.size, 0)
+    mask.paste(255, (feather, feather, part.width - feather, part.height - feather))
+    mask = mask.filter(ImageFilter.BoxBlur(feather // 2))
+    out = Image.new("L", (dst.size, dst.size), 0)
+    out.paste(part, (round((src.world[0] - dst.world[0]) / dst.mpp), round((dst.world[3] - src.world[3]) / dst.mpp)), mask)
+    return out
+
+
+def _stitch(archive, key, name, grid, failures):
+    prefix = LAYER_DIR + name + "_"
     found = {e.path[len(prefix):-4]: e for e in archive.entries("0012") if e.path.startswith(prefix) and e.path.endswith(".dds")}
-    img = Image.new("L", (SRC_SIZE, SRC_SIZE), 0)
-    for col in range(GRID):
-        for row in range(GRID):
+    img = Image.new("L", (grid * SRC_TILE, grid * SRC_TILE), 0)
+    for col in range(grid):
+        for row in range(grid):
             entry = found.get(f"{col}_{row}")
             if entry is None:
                 log.warning("map layer %s: tile %d_%d missing", key, col, row)
@@ -159,15 +214,15 @@ def _links(pts, reach, count=2):
             yield pts[i], pts[j]
 
 
-def island_layer(archive, failures=None):
-    """An 8-bit mask of the Abyss islands over the world square, SDF-like (128 = the edge)."""
-    size = SRC_SIZE
-    mpp = geo.WORLD_SIZE / size
+def island_layer(archive, failures=None, layers=None):
+    """An 8-bit mask of the Abyss islands over the layer set's square, SDF-like (128 = the edge)."""
+    layers = layers or layer_set(archive)
+    size, mpp, world = layers.size, layers.mpp, layers.world
     img = Image.new("L", (size, size), 0)
     draw = ImageDraw.Draw(img)
 
     def px(x, z):
-        return (x - geo.WORLD[0]) / mpp, (geo.WORLD[3] - z) / mpp
+        return (x - world[0]) / mpp, (world[3] - z) / mpp
     r, width = ISLAND_R / mpp, max(1, round(ISLAND_R * 0.8 / mpp))
     count = 0
     for pts in island_points(archive, failures).values():
@@ -267,27 +322,29 @@ def import_basemap(archive, store, realm, scale=2, progress=None):
     if scale not in SCALES:
         raise ValueError(f"scale must be one of {SCALES}")
     failures = []
-    layers = {k: load_layer(archive, k, failures) for k in REALM_LAYERS[realm]}
+    found = layer_set(archive)
+    layers = {k: load_layer(archive, k, failures, found) for k in REALM_LAYERS[realm]}
     if realm == "pywel":
         try:
             bitmap = regions.load(archive)
             if bitmap is not None:
-                layers["border"] = regions.border_layer(bitmap, SRC_SIZE)
+                layers["border"] = regions.border_layer(bitmap, found.size, found.world)
         except (ArchiveError, OSError, ValueError) as e:   # borders are a nicety
             log.warning("province borders unavailable: %s", e)
             failures.append(f"borders: {e}")
     if realm == "abyss":
         try:
-            layers["islands"] = island_layer(archive, failures)
+            layers["islands"] = island_layer(archive, failures, found)
         except (ArchiveError, OSError, ValueError) as e:   # the hex background still makes a map
             log.warning("Abyss islands unavailable: %s", e)
             failures.append(f"islands: {e}")
     previous = game_maps(store, realm)
-    size = SRC_SIZE * scale
+    size = found.size * scale
     summary = store.import_rendered(
         RENDERERS[realm](layers, scale), (size, size), realm, NAMES[realm], source="A",
         licence="rendered from your own Crimson Desert install; personal use, do not share",
-        game_version=archive.version(), fixed_georef=geo.world_georef(size), progress=progress, quality=WEBP_QUALITY)
+        game_version=archive.version(), fixed_georef=geo.world_georef(size, found.world), progress=progress,
+        quality=WEBP_QUALITY)
     for old in previous:
         store.delete(old["id"])
     log.info("Imported %s basemap %s (game %s, %d unreadable tiles)", realm, summary["id"], summary["gameVersion"], len(failures))

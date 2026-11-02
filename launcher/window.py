@@ -288,8 +288,8 @@ class MainWindow(QMainWindow):
         self.m_game_import = QPushButton("Import from game files", clicked=lambda: self.import_game())
         self.m_game_import.setObjectName("primary")
         self.m_quality = QComboBox()
-        self.m_quality.addItem("Default quality (16 384 px, ~2 min)", "default")
-        self.m_quality.addItem("High resolution (Pywel 32 768 px, ~5 min, ~3x disk)", "high")
+        self.m_quality.addItem("Default quality (25 600 px, ~4 min)", "default")
+        self.m_quality.addItem("High resolution (Pywel 51 200 px, ~8 min, ~2.5x disk)", "high")
         self.m_quality.setCurrentIndex(max(0, self.m_quality.findData(self.config.map_quality)))
         self.m_quality.setToolTip("High resolution keeps roads and coasts sharp when zoomed in close. "
                                   "Re-import to switch; the previous game map is replaced.")

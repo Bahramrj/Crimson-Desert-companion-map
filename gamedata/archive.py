@@ -245,19 +245,43 @@ def partial_dds(header, payload):
 
 # ── archive ───────────────────────────────────────────────────────
 
-def _names(block):
+def _record(block, cur, packed):
+    """(parent, name) of the name record at `cur`; parent None at the root.
+
+    Up to 2.03: [u32 parent offset or 0xFFFFFFFF][u8 len][name]. From 2.04 ("packed"): [LEB128 distance
+    back to the parent record, 0 = root][u8 len][name]."""
+    if not packed:
+        if cur + 5 > len(block):
+            raise ArchiveError("PAMT name record out of range")
+        parent, n = struct.unpack_from("<I", block, cur)[0], block[cur + 4]
+        return (None if parent == M32 else parent), block[cur + 5:cur + 5 + n]
+    delta, shift, i = 0, 0, cur
+    while True:
+        if i >= len(block) or shift > 28:
+            raise ArchiveError("PAMT name record out of range")
+        b = block[i]; i += 1
+        delta |= (b & 0x7F) << shift; shift += 7
+        if b < 0x80:
+            break
+    if i >= len(block) or delta > cur:
+        raise ArchiveError("PAMT name record out of range")
+    n = block[i]
+    return (cur - delta if delta else None), block[i + 1:i + 1 + n]
+
+
+def _names(block, packed=False):
     cache = {}
 
     def full(ref):
         if ref in cache:
             return cache[ref]
-        parts, cur, seen = [], ref, 0
-        while cur != M32:
-            if cur + 5 > len(block) or seen > 255:
+        parts, cur, seen = [], (None if ref == M32 else ref), 0   # 0xFFFFFFFF: no name (a folder at the root)
+        while cur is not None:
+            if seen > 255:
                 raise ArchiveError("PAMT name record out of range")
-            parent, n = struct.unpack_from("<I", block, cur)[0], block[cur + 4]
-            parts.append(block[cur + 5:cur + 5 + n].decode("utf-8", "replace"))
-            cur, seen = parent, seen + 1
+            cur, name = _record(block, cur, packed)
+            parts.append(name.decode("utf-8", "replace"))
+            seen += 1
         cache[ref] = "".join(reversed(parts))
         return cache[ref]
     return full
@@ -270,22 +294,29 @@ def parse_pamt(group_dir):
     paz_count = struct.unpack_from("<I", data, 4)[0]
     off = 12 + paz_count * 12
     dsize = struct.unpack_from("<I", data, off)[0]; off += 4
-    dirs = _names(data[off:off + dsize]); off += dsize
+    dir_block = data[off:off + dsize]; off += dsize
     nsize = struct.unpack_from("<I", data, off)[0]; off += 4
-    files = _names(data[off:off + nsize]); off += nsize
+    file_block = data[off:off + nsize]; off += nsize
     folders = struct.unpack_from("<I", data, off)[0]; off += 4
-    ranges = []
-    for i in range(folders):
-        _, name_off, first, count = struct.unpack_from("<4I", data, off + 16 * i)
-        if count:
-            ranges.append((first, first + count, dirs(name_off).replace("\\", "/").strip("/")))
-    ranges.sort()
+    folder_off = off
     off += 16 * folders
     count = struct.unpack_from("<I", data, off)[0]; off += 4
+    # 2.04 appends an extension table after the file records: [u32 size]["\0"-separated, index 0 = none]
+    tail = off + 20 * count
+    packed = tail < len(data)
+    exts = data[tail + 4:].split(b"\0") if packed else [b""]
+    dirs, files = _names(dir_block, packed), _names(file_block, packed)
+    ranges = []
+    for i in range(folders):
+        _, name_off, first, n = struct.unpack_from("<4I", data, folder_off + 16 * i)
+        if n:
+            ranges.append((first, first + n, dirs(name_off).replace("\\", "/").strip("/")))
+    ranges.sort()
     out, cursor = [], 0
     for i in range(count):
         name_off, poff, stored, size, paz, flags = struct.unpack_from("<IIIIHH", data, off + 20 * i)
-        path = files(name_off).replace("\\", "/").strip("/")
+        ext = exts[flags >> 8] if packed and flags >> 8 < len(exts) else b""
+        path = (files(name_off) + ext.decode("utf-8", "replace")).replace("\\", "/").strip("/")
         while cursor < len(ranges) and i >= ranges[cursor][1]:
             cursor += 1
         if cursor < len(ranges) and ranges[cursor][0] <= i and ranges[cursor][2]:

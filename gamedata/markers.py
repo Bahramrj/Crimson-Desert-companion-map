@@ -3,7 +3,8 @@
 - Places: `factionnode` (castles, caves, camps, ...). English names and descriptions come from
   `knowledgeinfo` row `Knowledge_<node name>` -> knowledge.paloc ("Node_Her_HowlingCave" is
   "Howling Hollow"); without one the internal name is spelled out.
-- Points: `reviepointinfo` (meditation spots, rest points, Abyss bridge gates).
+- Points: meditation spots, rest points and Abyss bridge gates (`fieldreviveinfo` types + `fieldreviveinfo_misc`
+  positions from 2.04, `reviepointinfo` rows before).
 - Points of interest: named objects placed in the levels (shops, Abyss gates and ruins,
   puzzles, challenges, faction buildings), plus the eight town bells from their level files.
 - Resources & treasures: objects placed by type (ore, plants, crafting stations, chests, memory
@@ -20,9 +21,10 @@ import math
 import re
 
 from gamedata import levels, regions, worldmap
+from gamedata.archive import ArchiveError
 from gamedata.strings import load_strings, texts_in
-from gamedata.tables import first_position, placements, read_misc, read_table, typed_placements
-from mapstore.georef import WORLD, WORLD_SIZE
+from gamedata.tables import first_position, grouped_points, placements, read_misc, read_table, typed_placements
+from mapstore.georef import WORLD
 
 log = logging.getLogger("cdlivemap.gamedata")
 
@@ -72,6 +74,14 @@ REVIVE_RULES = [
     ("meditation", "Meditation spots", re.compile(r"^gimmick_revivepoint_meditation", re.I)),
     ("rest-point", "Rest points", re.compile(r"^gimmick_revivepoint_", re.I)),
     ("abyss-bridge", "Abyss bridge gates", re.compile(r"^gimmick_abyssone_bridge_gate", re.I)),
+]
+# From 2.04 the points are grouped by type (fieldreviveinfo rows RevivePoint_<type>, positions in
+# fieldreviveinfo_misc); first matching rule wins, None skips the type.
+REVIVE_TYPES = [
+    ("meditation", re.compile(r"^RevivePoint_Meditation", re.I)),
+    ("abyss-bridge", re.compile(r"^RevivePoint_AbyssBridge", re.I)),
+    (None, re.compile(r"^RevivePoint_AbyssRuins", re.I)),
+    ("rest-point", re.compile(r"^RevivePoint_", re.I)),
 ]
 
 # shop kind (lower case) -> (category, label)
@@ -345,16 +355,34 @@ def places(archive, ctx):
     return _set("game-places", "Places (game data)", archive, cats, markers)
 
 
+def _revive_rows(archive, ctx):
+    """[(marker id, category, position)]: 2.04 grouped points, else the 2.03 reviepointinfo rows."""
+    try:
+        types = {r.key: r.name for r in read_table(archive, "fieldreviveinfo")}
+        groups = grouped_points(read_misc(archive, "fieldreviveinfo_misc"))
+    except ArchiveError:
+        out = []
+        for row in read_table(archive, "reviepointinfo"):
+            rule = next((r for r in REVIVE_RULES if r[2].match(row.name)), None)
+            pos = rule and first_position(row.payload, *ctx["checks"])
+            if pos:
+                out.append((row.name, rule[0], pos))
+        return out
+    out = []
+    for key, points in groups.items():
+        name = types.get(key, "")
+        cat = next((c for c, rx in REVIVE_TYPES if rx.match(name)), None)
+        for x, y, z in points if cat else ():
+            if WORLD[0] < x < WORLD[2] and WORLD[1] < z < WORLD[3]:
+                out.append((f"{name}@{x:.2f}:{z:.2f}", cat, (x, y, z)))
+    return out
+
+
 def revive_points(archive, ctx):
-    markers, counters = [], {}
-    for row in read_table(archive, "reviepointinfo"):
-        rule = next((r for r in REVIVE_RULES if r[2].match(row.name)), None)
-        pos = rule and first_position(row.payload, *ctx["checks"])
-        if not pos:
-            continue
-        cat, label = rule[0], rule[1].rstrip("s")
+    markers, counters, labels = [], {}, {c: n.rstrip("s") for c, n, _ in REVIVE_RULES}
+    for mid, cat, pos in _revive_rows(archive, ctx):
         counters[cat] = counters.get(cat, 0) + 1
-        markers.append(_marker(row.name, cat, f"{label} {counters[cat]}", pos))
+        markers.append(_marker(mid, cat, f"{labels[cat]} {counters[cat]}", pos))
     log.info("revive points: %d markers", len(markers))
     cats = [{"id": c, "name": n, "group": group_of(c)} for c, n, _ in REVIVE_RULES]
     return _set("game-points", "Rest & Abyss points (game data)", archive, cats, markers)
@@ -478,11 +506,12 @@ def position_checks(archive):
     """Checks for tables.first_position, in order of preference:
     1. at Pywel height, on (or just off) land in the game's own land layer;
     2. at Abyss height, and not a round number (counters and sizes are; real positions aren't)."""
-    land = worldmap.load_layer(archive, "land")
-    size, px = land.width, land.load()
+    found = worldmap.layer_set(archive)
+    land = worldmap.load_layer(archive, "land", layers=found)
+    size, px, (x0, _, x1, z1) = land.width, land.load(), found.world
 
     def on_land(x, y, z):
-        u, v = int((x - WORLD[0]) / WORLD_SIZE * size), int((WORLD[3] - z) / WORLD_SIZE * size)
+        u, v = int((x - x0) / (x1 - x0) * size), int((z1 - z) / (x1 - x0) * size)
         return y <= ABYSS_Y and 0 <= u < size and 0 <= v < size and px[u, v] > COAST_SDF
 
     def in_abyss(x, y, z):
