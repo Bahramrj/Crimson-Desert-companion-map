@@ -89,7 +89,8 @@ If the device cannot connect:
   Crafting, Treasures and Animals (about 18 000 markers, about 39 000 with the DLC) start switched
   off; tick the ones you want.
 - **Settings**: rotate the map with your heading, the arrow size, map and marker opacity,
-  the theme and the toolbar position.
+  **Game icons** (the game's own map icons for the markers, taken from your game files; switch it
+  off for simple icons), the theme and the toolbar position.
 - **Profiles**: save a layout (zoom, filters, opacity, …) and apply it on any device.
 
 ## Secure connection (HTTPS, optional)
@@ -134,8 +135,8 @@ no personal data beyond your PC's network addresses and folder paths. Attach it 
 - Map data, markers, found-progress, profiles and settings are kept in
   `%LOCALAPPDATA%\CompanionMap` (moved there automatically from `CDLiveMapStandalone`, the app's earlier name).
 - Nothing is sent to the internet. Devices talk only to your PC, **over your local network**.
-- Game files are only read, never changed. Imported maps are for your personal use: don't share
-  them.
+- Game files are only read, never changed. Imported maps and the game's marker icons are for your
+  personal use: don't share them.
 
 ## Building from source
 

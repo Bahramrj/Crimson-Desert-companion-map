@@ -249,6 +249,12 @@ class Api:
         resp.enable_compression()                    # a few thousand markers: ~10x smaller gzipped
         return resp
 
+    async def marker_icons(self, request):
+        path = self.app["markers"].icons_path(request.match_info["rev"])
+        if path is None:
+            return _error(404, "no such icon sheet")
+        return web.FileResponse(path, headers={"Cache-Control": TILE_CACHE, "Content-Type": "image/png"})
+
     async def add_my_marker(self, request):
         body = await _json_body(request)
         if not isinstance(body, dict):
@@ -362,6 +368,7 @@ def create_app(config, engine, data_dir, web_dir=WEB_DIR, simulated=False, pin="
     r.add_delete("/cdlm/api/maps/{id}/calibration", api.reset_map_calibration)
     r.add_delete("/cdlm/api/maps/{id}/calibration/{index}", api.delete_map_point)
     r.add_get("/cdlm/api/markers", api.list_markers)
+    r.add_get(r"/cdlm/api/markers/icons/{rev:[0-9a-f]{12}}.png", api.marker_icons)
     r.add_post("/cdlm/api/markers/mine", api.add_my_marker)
     r.add_delete("/cdlm/api/markers/mine/{id}", api.delete_my_marker)
     r.add_get("/cdlm/api/progress", api.get_progress)

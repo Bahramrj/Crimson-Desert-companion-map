@@ -6,9 +6,15 @@
 
 Like maps, every set records where it came from. Sets imported from the game are replaced
 by the next import; the user's own sets are never touched by it.
+
+The game's own map icons for the categories (gamedata/icons.py) are kept next to the sets as
+_icons.png (one sprite sheet) and _icons.json ({rev, source, licence, gameVersion, cells}); they come
+from the user's install and stay on this PC.
 """
 
+import hashlib
 import math
+import os
 import re
 import time
 import uuid
@@ -18,6 +24,9 @@ from mapstore.store import REALMS, SOURCES, MapError, NotFound
 from server.jsonstore import read_json, write_json
 
 ID_RE = re.compile(r"^[a-z0-9-]{1,80}$")
+PNG_MAGIC = bytes([0x89]) + b"PNG"
+REV_RE = re.compile(r"^[0-9a-f]{12}$")
+ICON_LICENCE = "From your own game install; stays on this PC, not for sharing"
 KEY_RE = re.compile(r"^[a-z0-9-]{1,80}:[^\s]{1,200}$")
 MAX_MARKERS = 100_000
 MAX_NAME, MAX_NOTES = 80, 500
@@ -89,10 +98,43 @@ class MarkerStore:
             "count": len(data["markers"])}
 
     def listing(self):
-        """Everything the shell needs: set summaries and all markers, each tagged with its set."""
+        """Everything the shell needs: set summaries, all markers (each tagged with its set) and the
+        game icon sheet, if one was imported."""
         sets = self.list()
+        icons = self.icons()
         return {"sets": [self.summary(s) for s in sets],
-                "markers": [{**m, "set": s["id"]} for s in sets for m in s["markers"]]}
+                "markers": [{**m, "set": s["id"]} for s in sets for m in s["markers"]],
+                "icons": icons and {"rev": icons["rev"], "url": f"/cdlm/api/markers/icons/{icons['rev']}.png",
+                                    "cells": icons["cells"]}}
+
+    # ── game icon sheet ──
+
+    def save_icons(self, png, cells, game_version=None):
+        """Store the icon sheet (PNG bytes) and its cells {category: [x, y, w, h]}; None removes it."""
+        if png is None:
+            for name in ("_icons.json", "_icons.png"):
+                (self.root / name).unlink(missing_ok=True)
+            return None
+        if not png.startswith(PNG_MAGIC) or not isinstance(cells, dict):
+            raise MapError("icon sheet must be a PNG with a cell index")
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp = self.root / "_icons.png.tmp"
+        tmp.write_bytes(png)
+        os.replace(tmp, self.root / "_icons.png")
+        meta = {"rev": hashlib.sha1(png).hexdigest()[:12], "source": "A", "licence": ICON_LICENCE,
+                "gameVersion": game_version, "cells": cells}
+        write_json(self.root / "_icons.json", meta)
+        return meta
+
+    def icons(self):
+        meta = read_json(self.root / "_icons.json")
+        if not meta or not REV_RE.match(str(meta.get("rev", ""))) or not (self.root / "_icons.png").is_file():
+            return None
+        return meta
+
+    def icons_path(self, rev):
+        meta = self.icons()
+        return self.root / "_icons.png" if meta and meta["rev"] == rev else None
 
     # ── found-progress: keys "<set>:<marker id>", shared by every device ──
 

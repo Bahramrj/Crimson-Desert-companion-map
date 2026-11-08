@@ -23,7 +23,7 @@ import TileGrid from "ol/tilegrid/TileGrid";
 import { defaults as defaultInteractions } from "ol/interaction/defaults";
 import type { Bridge, LatLng, MapLayer, MapMarker, MapView, PlayerView } from "../bridge";
 import { WORLD } from "../coord";
-import { iconUrl } from "./icons";
+import { iconUrl, onIconsChanged } from "./icons";
 
 const RAD = Math.PI / 180;
 const SIZES = { small: 26, medium: 36, large: 48 } as const;
@@ -145,6 +145,7 @@ export function createBridge(target: HTMLElement): Bridge {
       return m.key === highlighted ? [highlightStyle, style] : style;
     },
   });
+  onIconsChanged(() => { iconStyles.clear(); markerLayer.changed(); });
   const regionSource = new VectorSource<Feature<Point>>();
   const regionLayer = new VectorLayer({
     source: regionSource,

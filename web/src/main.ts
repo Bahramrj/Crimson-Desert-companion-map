@@ -4,7 +4,7 @@ import "./styles.css";
 import { Api, ApiError, type MapListing, type MapSummary, type Marker, type MarkerListing, type Profile } from "./api";
 import type { Bridge, LatLng, MapLayer, MapMarker } from "./bridge";
 import { gameToPx, REALMS, type Realm } from "./coord";
-import { iconUrl } from "./local/icons";
+import { iconUrl, onIconsChanged, setGameIcons, setIconSheet } from "./local/icons";
 import { createBridge } from "./local/olBridge";
 import { Live, type PositionMsg, type ServerMsg } from "./live";
 import { DEFAULT_LAYOUT, loadPrefs, savePrefs, type Layout, type RealmMode } from "./prefs";
@@ -76,6 +76,11 @@ class App {
     document.body.append(this.mapEl, this.pill, this.chips, this.controls, this.toolbar, this.sheet, this.card, this.toast, this.loading);
     document.addEventListener("keydown", (e) => this.onKey(e));
     this.bridge = createBridge(this.mapEl);
+    setGameIcons(this.layout.gameIcons);
+    onIconsChanged(() => {            // panel rows and the marker card show icons too
+      if (this.sheetKind === "markers") this.renderSheet();
+      this.render();
+    });
     this.bridge.onUserPan(() => { if (this.layout.follow) this.setFollow(false); });
     this.bridge.onTap((ll, key) => void this.onMapTap(ll, key));
     this.applyLayoutChrome();
@@ -295,6 +300,7 @@ class App {
     try {
       const [data, progress] = await Promise.all([this.api.markers(), this.api.progress()]);
       this.markerData = data;
+      setIconSheet(data.icons, (path) => this.api.withPin(path));
       this.markerIndex = new Map(data.markers.map((m) => [`${m.set}:${m.id}`, m]));
       this.offKeys = new Set(data.sets.flatMap((s) => s.categories.filter((c) => c.off).map((c) => `${s.id}:${c.id}`)));
       this.found = new Set(progress.found);
@@ -596,13 +602,14 @@ class App {
     this.layout = {
       follow: p.follow, rotateWithHeading: p.rotateWithHeading, markerSize: p.markerSize,
       toolbarSide: p.toolbarSide, theme: p.theme, sidebar: p.sidebar, hide: [...p.hide], show: [...(p.show ?? [])], hideFound: p.hideFound,
-      mapOpacity: p.mapOpacity ?? 1, markerOpacity: p.markerOpacity ?? 1,
+      mapOpacity: p.mapOpacity ?? 1, markerOpacity: p.markerOpacity ?? 1, gameIcons: p.gameIcons ?? true,
     };
     this.prefs.lastProfileId = p.id;
     this.saveLayout();
     this.applyLayoutChrome();
     this.bridge.setFollow(p.follow);
     this.bridge.setOpacity(this.layout.mapOpacity, this.layout.markerOpacity);
+    setGameIcons(this.layout.gameIcons);
     this.bridge.setBearingDeg(p.rotateWithHeading && this.pos?.heading != null ? this.pos.heading : 0);
     if (p.zoom !== null) this.bridge.panTo(this.playerLatLng() ?? this.bridge.getView().center, p.zoom);
     this.updatePlayer();
@@ -683,6 +690,9 @@ class App {
     const kind = this.sheetKind;
     const typing = kind === "markers" && document.activeElement?.getAttribute("data-testid") === "marker-search";
     if (typing) return;
+    // the same sheet again (a category ticked, a setting changed): keep where the list was scrolled to
+    const same = !!kind && this.sheet.dataset.testid === `sheet-${kind}`;
+    const scrolled = same ? this.sheet.querySelector<HTMLElement>(".sheet-body")?.scrollTop ?? 0 : 0;
     this.sheet.hidden = !kind;
     this.sheet.dataset.testid = kind ? `sheet-${kind}` : "";
     if (!kind) { this.sheet.replaceChildren(); return; }
@@ -699,6 +709,7 @@ class App {
         } }, icon("close"))),
       h("div", { class: "sheet-body" }, ...(kind === "profiles" ? this.profilesBody() : kind === "markers" ? this.markersBody() : this.settingsBody())),
     );
+    if (scrolled) this.sheet.querySelector<HTMLElement>(".sheet-body")!.scrollTop = scrolled;
     if (focused) (this.sheet.querySelector<HTMLElement>(again) ?? this.sheet.querySelector<HTMLElement>("#sheet-title"))?.focus({ preventScroll: true });
   }
 
@@ -799,6 +810,7 @@ class App {
       if (key === "rotateWithHeading") this.bridge.setBearingDeg(value && this.pos?.heading != null ? this.pos.heading : 0);
       if (key === "follow") this.setFollow(value as boolean);
       if (key === "markerSize") this.updatePlayer();
+      if (key === "gameIcons") setGameIcons(value as boolean);
       this.renderSheet();
       this.render();
     };
@@ -823,6 +835,10 @@ class App {
       h("h3", {}, "Opacity"),
       slider("Map", this.layout.mapOpacity, 0.2, 1, (v) => opacity("mapOpacity", v), "set-map-opacity"),
       slider("Markers", this.layout.markerOpacity, 0.2, 1, (v) => opacity("markerOpacity", v), "set-marker-opacity"),
+      h("h3", {}, "Markers"),
+      toggle("Game icons", this.layout.gameIcons, (v) => set("gameIcons", v), "set-game-icons"),
+      h("p", { class: "muted" }, "The game's own map icons, taken from your game files by Import from game files. "
+        + "Off: simple icons."),
       ...this.mapSection(),
       h("h3", {}, "Layout"),
       h("div", { class: "field" }, h("span", {}, "Toolbar"),
@@ -845,6 +861,7 @@ class App {
         this.applyLayoutChrome();
         this.bridge.setFollow(this.layout.follow);
         this.bridge.setOpacity(1, 1);
+        setGameIcons(this.layout.gameIcons);
         this.bridge.setBearingDeg(0);
         this.renderSheet();
         this.render();

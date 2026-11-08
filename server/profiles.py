@@ -17,7 +17,7 @@ DEFAULTS = {
     "types": [], "hide": [], "show": [],
     "zoom": None, "follow": True, "rotateWithHeading": False, "hideFound": False,
     "sidebar": "collapsed", "toolbarSide": "bottom", "markerSize": "medium", "theme": "auto",
-    "mapOpacity": 1.0, "markerOpacity": 1.0,
+    "mapOpacity": 1.0, "markerOpacity": 1.0, "gameIcons": True,
 }
 OPACITY = (0.2, 1.0)
 EDITABLE = {"name", *DEFAULTS}
@@ -57,7 +57,7 @@ def validate(data, partial=False):
         elif key in ("mapOpacity", "markerOpacity"):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not OPACITY[0] <= value <= OPACITY[1]:
                 raise ProfileError(f"{key} must be a number between {OPACITY[0]} and {OPACITY[1]}")
-        elif key in ("follow", "rotateWithHeading", "hideFound"):
+        elif key in ("follow", "rotateWithHeading", "hideFound", "gameIcons"):
             if not isinstance(value, bool):
                 raise ProfileError(f"{key} must be true or false")
         elif key in ENUMS and value not in ENUMS[key]:

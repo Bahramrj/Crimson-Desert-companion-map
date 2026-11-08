@@ -950,8 +950,8 @@ ABOUT = """<h2>{app} <span style="font-weight:normal">{version}</span></h2>
 <p>Shows where you are in Crimson Desert on a live map on your tablet or phone, next to the game.
 The map, markers and live position come from this PC; no internet connection is used.</p>
 <p><b>How it works.</b> The app reads the player position from the game's memory, read-only. It never
-writes player data or changes how the game behaves. The map and markers are made from your own game
-files and stay on this PC.</p>
+writes player data or changes how the game behaves. The map, markers and marker icons are made from
+your own game files and stay on this PC.</p>
 <p><b>Privacy.</b> No accounts, no telemetry, no online services. Devices connect to this PC over your
 local network only.</p>
 <p><b>Unofficial.</b> A fan-made tool, not affiliated with or endorsed by Pearl Abyss.

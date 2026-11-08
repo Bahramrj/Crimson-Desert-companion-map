@@ -19,6 +19,8 @@ export interface Profile {
   theme: "auto" | "dark" | "light";
   mapOpacity: number;      // 0.2 .. 1
   markerOpacity: number;
+  /** Marker icons from the game files (when imported), or our own simple ones. */
+  gameIcons: boolean;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -81,7 +83,10 @@ export interface Marker {
   notes?: string;
 }
 
-export interface MarkerListing { sets: MarkerSet[]; markers: Marker[] }
+/** The game's own icons, cut from the install at import: a sprite sheet and a cell per category. */
+export interface IconSheet { rev: string; url: string; cells: Record<string, [number, number, number, number]> }
+
+export interface MarkerListing { sets: MarkerSet[]; markers: Marker[]; icons?: IconSheet | null }
 
 export interface ServerStatus {
   server: { version: string; port: number; urls: string[]; clients: number; simulated: boolean; pin: boolean };

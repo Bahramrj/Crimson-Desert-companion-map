@@ -2,6 +2,8 @@
 
 ## 0.10.0 (Nov 8, 2026)
 
+- **After updating:** click **Import from game files** in the Maps tab (or **Update map files** on
+  the main page) once, so the new markers and icons are made from your game files.
 - **Supports the "Charting the Unknown" DLC** and game patch 2.04.08 (exe 1.0.0.3576). If the DLC is
   installed, **Import from game files** now adds its content:
   - the islands and their coasts, island and sea caves, sunken ruins, island ruins, villages,
@@ -11,6 +13,13 @@
     deposits, obsidian, golden coral, sea fan coral, reefs, natural pearls, ambergris, anchorages and
     businesses for rent.
 - Without the DLC, nothing changes.
+- **The game's own map icons for the markers**: ores, plants, corals, crafting stations, shops,
+  bells, Abyss gates, animals, caves, forts and more now show the icon the game uses, on the usual
+  coloured disc. They are taken from your game files and stay on your PC. **Settings → Game icons**
+  switches back to the simple icons.
+- The markers panel and the settings stay where you scrolled to when you tick a category or a
+  switch (they jumped back to the top).
+- The Relic Collectors are no longer named "Relic Collector · Collector".
 
 ## 0.9.0 (Nov 2, 2026)
 

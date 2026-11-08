@@ -1,6 +1,8 @@
-// Our own marker icons: a white glyph on a coloured disc, as SVG data URLs (same origin, no
-// game icons). Category ids come from gamedata/markers.py; imported sets fall back to a dot
-// with a colour picked from the category id.
+// Marker icons: a white pictogram on the category's coloured disc. The pictogram is the game's own
+// map icon when the import cut one from the user's install (gamedata/icons.py, served as one sprite
+// sheet from the PC), otherwise our own glyph (SVG). Category ids come from gamedata/markers.py;
+// imported sets fall back to a dot with a colour picked from the category id.
+import type { IconSheet } from "../api";
 
 const GLYPHS: Record<string, string> = {
   castle: "M5 20V9l2 1V7h2v2h2V7h2v2h2V7h2v3l2-1v11h-5v-4a2 2 0 0 0-4 0v4z",
@@ -123,10 +125,71 @@ export function categoryColor(category: string): string {
 
 const cache = new Map<string, string>();
 
+let sprite: { img: HTMLImageElement; cells: IconSheet["cells"] } | null = null;
+let spriteRev = "";
+let useGame = true;
+const listeners = new Set<() => void>();
+
+/** Called whenever icons change (sheet loaded or removed, game icons switched on or off). */
+export function onIconsChanged(cb: () => void) { listeners.add(cb); }
+
+function changed() {
+  cache.clear();
+  listeners.forEach((cb) => cb());
+}
+
+/** Load the game icon sheet (null: none imported). `withPin` adds the PIN to the URL, if any. */
+export function setIconSheet(sheet: IconSheet | null | undefined, withPin: (path: string) => string) {
+  if (!sheet) {
+    spriteRev = "";
+    if (sprite) { sprite = null; changed(); }
+    return;
+  }
+  if (sheet.rev === spriteRev) return;
+  spriteRev = sheet.rev;
+  const img = new Image();
+  img.onload = () => {
+    if (spriteRev !== sheet.rev) return;
+    sprite = { img, cells: sheet.cells };
+    if (useGame) changed();
+  };
+  img.src = withPin(sheet.url);       // on error the simple icons stay
+}
+
+export function setGameIcons(on: boolean) {
+  if (on === useGame) return;
+  useGame = on;
+  if (sprite) changed();
+}
+
+/** 64 px (2x) PNG: the disc as in the SVG icons, with the game pictogram; null without one. */
+function gameIcon(category: string, fill: string): string | null {
+  const cell = useGame ? sprite?.cells[category] : undefined;
+  if (!sprite || !cell) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const g = canvas.getContext("2d");
+  if (!g) return null;
+  g.beginPath();
+  g.arc(32, 32, 26, 0, Math.PI * 2);
+  g.fillStyle = fill;
+  g.fill();
+  g.lineWidth = 5;
+  g.strokeStyle = "#fff";
+  g.stroke();
+  const [x, y, w, h] = cell;
+  g.drawImage(sprite.img, x, y, w, h, 13, 13, 38, 38);
+  try { return canvas.toDataURL("image/png"); } catch { return null; }
+}
+
 /** Data URL of a 32 px icon; found markers are grey with a tick. */
 export function iconUrl(category: string, found: boolean): string {
   const key = `${category}|${found}`;
   let url = cache.get(key);
+  if (!url && !found) {
+    url = gameIcon(category, categoryColor(category)) ?? undefined;
+    if (url) cache.set(key, url);
+  }
   if (!url) {
     const fill = found ? "#9ca3af" : categoryColor(category);
     const glyph = found ? "M9.5 16.2 5.8 12.5l1.4-1.4 2.3 2.3 7.3-7.3 1.4 1.4z" : glyphOf(category);

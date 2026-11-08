@@ -22,7 +22,7 @@ import logging
 import math
 import re
 
-from gamedata import levels, regions, worldmap
+from gamedata import icons, levels, regions, worldmap
 from gamedata.archive import ArchiveError
 from gamedata.strings import load_strings, texts_in
 from gamedata.tables import first_position, grouped_points, placements, read_miscs, read_table, typed_placements
@@ -567,4 +567,10 @@ def import_markers(archive, store, lang="eng"):
         except Exception as e:   # one broken table must not stop the import
             log.warning("marker set %s failed: %s", extract.__name__, e)
             failures.append(f"{extract.__name__}: {e}")
+    try:                         # the game's own icons; without them the shell keeps its own glyphs
+        png, cells, _ = icons.extract(archive)
+        store.save_icons(png, cells, archive.version())
+    except Exception as e:
+        log.warning("game icons failed: %s", e)
+        failures.append(f"icons: {e}")
     return summaries, failures
