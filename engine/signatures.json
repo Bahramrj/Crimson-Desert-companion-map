@@ -1,5 +1,5 @@
 {
-  "_comment": "Byte patterns for CrimsonDesert.exe. '??' is a wildcard. Verified on Steam buildid 25477059 (exe 1.0.0.2976); both patterns also match once in buildid 26361232 (exe 1.0.0.3479, game 2.04.05). Based on CD_Companion 35aa7f3.",
+  "_comment": "Byte patterns for CrimsonDesert.exe. '??' is a wildcard. Verified on Steam buildid 25477059 (exe 1.0.0.2976); both patterns also match once in buildid 26361232 (exe 1.0.0.3479, game 2.04.05) and 26480954 (exe 1.0.0.3576, game 2.04.08). Based on CD_Companion 35aa7f3.",
   "physics_position": {
     "_comment": "Upstream hook_e site: movaps xmm0,xmm6 ; subss xmm9,xmm8 ; then addps xmm0,[r13] ; movups [r13],xmm0. [r13] is the player's position vector, rbx the physics entity.",
     "pattern": "0F 28 C6 F3 45 0F 5C C8 41 0F 58 45 00 41 0F 11 45 00",

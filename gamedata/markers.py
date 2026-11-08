@@ -13,6 +13,8 @@
   per area for the named species (boars, bison, eagles, ...); generic kinds ("medium land animal",
   "cliff bird") are left out.
 - Regions: one label per province (Hernand, Pailune, ...) from the world-map region bitmap.
+An installed DLC (dlc/<name>/) adds its own rows, placements and names (gamedata.archive): the
+"Charting the Unknown" islands, sunken ruins, sea caves, residences, sea minerals and corals.
 Positions are float32 x/y/z in the engine's own space.
 """
 
@@ -23,7 +25,7 @@ import re
 from gamedata import levels, regions, worldmap
 from gamedata.archive import ArchiveError
 from gamedata.strings import load_strings, texts_in
-from gamedata.tables import first_position, grouped_points, placements, read_misc, read_table, typed_placements
+from gamedata.tables import first_position, grouped_points, placements, read_miscs, read_table, typed_placements
 from mapstore.georef import WORLD
 
 log = logging.getLogger("cdlivemap.gamedata")
@@ -57,7 +59,7 @@ PLACE_RULES = [
     ("village", "Villages & towns", ("Village", "Town", "City", "Harbor", "Harbour", "Port", "Hamlet")),
     ("work", "Farms, mines & workshops", ("Farm", "Ranch", "Mill", "Sawmill", "Quarry", "Mine", "Factory", "Workshop",
                                           "Saddlery", "Smithy", "Dock", "Fishing", "Vineyard", "Orchard", "Station")),
-    ("house", "Houses & cabins", ("Cabin", "House", "Hut", "Lodge", "Inn")),
+    ("house", "Houses & cabins", ("Cabin", "House", "Hut", "Lodge", "Inn", "Housing", "Residence")),
 ]
 # craftsmen and works named by their trade ("Warspike Spearmaker", "Totesmith Tannery")
 CRAFT_WORDS = ("maker", "makers", "smith", "craftshop", "works", "tannery", "dyehouse", "bindery", "mappery", "apothecary",
@@ -65,7 +67,8 @@ CRAFT_WORDS = ("maker", "makers", "smith", "craftshop", "works", "tannery", "dye
                "farmhouse")
 LANDMARK = ("landmark", "Landmarks", ("Lake", "Oasis", "Forest", "Woods", "Gorge", "Pass", "Rock", "Rocks", "Tree", "Eldertree",
                                       "Valley", "Canyon", "Falls", "Waterfall", "Peak", "Hill", "Cliff", "Cliffs", "Spring",
-                                      "Springs", "Bridge", "Island", "Nest", "Grove", "Marsh", "Swamp", "Dunes", "Wetlands"))
+                                      "Springs", "Bridge", "Island", "Nest", "Grove", "Marsh", "Swamp", "Dunes", "Wetlands",
+                                      "Isle", "Isles", "Islet", "Reef", "Lagoon", "Cove", "Bay", "Atoll", "Rapids", "Coast"))
 OTHER_PLACE = ("place", "Other places")
 
 # The Abyss artifact ruins in this table are the same objects as AbyssRuins_* placements (0 m apart),
@@ -98,7 +101,7 @@ SHOP_KINDS = {
     "goldleafguildhouse": ("trader", "Goldleaf Guildhouse"), "redwindtradingassociation": ("trader", "Red Wind trader"),
     "silvermoontroll": ("trader", "Silvermoon trader"), "mineral": ("trader", "Mineral trader"),
     "timber": ("trader", "Timber trader"), "domesticfence": ("trader", "Fence"),
-    "wanted": ("wanted", "Wanted board"),
+    "wanted": ("wanted", "Wanted board"), "relic": ("trader", "Relic Collector"),
     "bank": ("bank", "Bank"), "coin": ("bank", "Coin exchange"), "bond": ("bank", "Bonds"), "warehouse": ("bank", "Warehouse"),
 }
 # Panel groups (like the sections of online map sites): category id -> group
@@ -127,19 +130,26 @@ RESOURCE_RULES = [
     ("ore-garnet", "Garnet", "Mining", r"mine_ruby"), ("ore-azurite", "Azurite", "Mining", r"mine_bluestone"),
     ("ore-bloodstone", "Bloodstone", "Mining", r"mine_redstone"), ("ore-epidote", "Epidote", "Mining", r"mine_greenstone"),
     ("ore-scolecite", "Scolecite", "Mining", r"mine_whitestone"), ("ore-brimstone", "Brimstone", "Mining", r"gimmick_sulfur_rock"),
+    ("ore-manganese", "Manganese nodules", "Mining", r"mine_manganese"), ("ore-quartz", "Shiny minerals", "Mining", r"mine_quartz"),
+    ("ore-malachite", "Malachite", "Mining", r"mine_malachite"),
+    ("ore-hydrothermal", "Hydrothermal deposits", "Mining", r"mine_hydrothermalmineral"),
+    ("ore-obsidian", "Obsidian", "Mining", r"gimmick_mine_obsidian"),
     ("plant-palmar", "Palmar leaves", "Gathering", r"gimmick_jijeongta_leaf"), ("plant-taro", "Taro", "Gathering", r"taro_"),
     ("plant-amaranth", "Amaranth", "Gathering", r"amaranth_"), ("plant-seaweed", "Red seaweed", "Gathering", r"dulse_"),
     ("plant-chaya", "Chaya", "Gathering", r"chaya_"), ("plant-prickly-pear", "Prickly pears", "Gathering", r"opuntia_"),
     ("plant-enset", "Enset", "Gathering", r"ensete_"), ("plant-algae", "Green algae", "Gathering", r"chlorella_"),
     ("plant-skyroot", "Skyroot vines", "Gathering", r"gimmick_kudzu_vine"), ("plant-rubber", "Rubber", "Gathering", r"rare_collect_rubber"),
     ("mercury", "Mercury pools", "Gathering", r"gimmick_waterpool"),
+    ("sea-coral", "Golden coral", "Gathering", r"goldencoral"), ("sea-fan-coral", "Sea fan coral", "Gathering", r"blackcoral"),
+    ("sea-reef", "Reefs", "Gathering", r"searock_"), ("sea-pearl", "Natural pearls", "Gathering", r"gimmick_pearl"),
+    ("sea-ambergris", "Ambergris", "Gathering", r"mine_ambergris"),
     ("craft-bonfire", "Bonfires", "Crafting", r"gimmick_craft_cook_campfire"),
     ("craft-cooking", "Special cooking tools", "Crafting", r"gimmick_craft_cook_oven"),
     ("craft-anvil", "Anvils", "Crafting", r"gimmick_craft_anvil"), ("craft-grindstone", "Grindstones", "Crafting", r"gimmick_tool_blacksmithstone"),
     ("craft-forge", "Forges", "Crafting", r"craft_smith_"), ("craft-cauldron", "Cauldrons", "Crafting", r"craft_medicine_"),
     ("craft-loom", "Looms", "Crafting", r"craft_sewing_"), ("craft-workstation", "Workstations", "Crafting", r"carpenter_"),
     ("well", "Wells", "Crafting", r"gimmick_well_"),
-    ("chest", "Treasure chests", "Treasures", r"itembox_|temple_chest_|safebox_"),
+    ("chest", "Treasure chests", "Treasures", r"itembox_|temple_chest_|safebox_|dff_chest_"),
     ("small-box", "Small boxes", "Treasures", r"gimmick_item_dropset_treasurebox"),
     ("boss-fragment", "Boss memory fragments", "Treasures", r"item_visione_chip_bossrematch"),
     ("memory-fragment", "Memory fragments", "Treasures", r"item_visione_chip"),
@@ -152,6 +162,8 @@ RESOURCE_RULES = [
     ("repair-shop", "A.T.A.G. repair shops", "Locations", r"gimmick_middle_tunnel"),
     ("house-site", "House sites", "Rest & travel", r"gimmick_housing_movepoint"),
     ("transporter", "Transporters", "Rest & travel", r"gimmick_marni_teleportation"),
+    ("dock", "Anchorages", "Rest & travel", r"gimmick_ship_foothold_dock"),
+    ("business", "Businesses for rent", "Services", r"management_node_"),
 ]
 RESOURCE_MATCH = [(cat, re.compile(rule, re.I)) for cat, _, _, rule in RESOURCE_RULES]
 
@@ -285,7 +297,7 @@ def poi_kind(name):
         if rest[:3] == ["Trader", "Street", "Trader"]:
             return "trader", "Street trader"
         cat, label = SHOP_KINDS.get(rest[0].lower(), ("shop", spell(rest[:1])))
-        rest = rest[1:]                                    # Shop_<kind>_<town>[_Faction_<faction>]
+        rest = [p for p in rest[1:] if p not in label.split()]  # Shop_<kind>_<town>[_Faction_<faction>]
         cut = rest.index("Faction") if "Faction" in rest else len(rest)
         town = spell(p for p in rest[:cut] if p != "Trader")
         faction = spell(rest[cut + 1:])
@@ -336,12 +348,27 @@ class Names:
         return texts[0], (texts[1] if len(texts) > 1 and texts[1].rstrip(".") != texts[0] else None)
 
 
+# Places at sea (DLC "Charting the Unknown"): islands, sunken ruins and sea caves. Their rows hold the
+# position twice, then sizes that the on-land check can mistake for a position, so they take the
+# earliest position at Pywel height instead; a leading field makes small numbers near (0, 0) look like
+# one, so both x and z must be at least 300 m from 0. Node_Pywel_Ocean* are whole sea areas, not places.
+SEA_PLACE = re.compile(r"^Node_(Ocean|Island|MayaRuins)_")
+SEA_AREA = re.compile(r"^Node_Pywel_Ocean")
+
+
+def _at_sea(x, y, z):
+    return WORLD[0] < x < WORLD[2] and WORLD[1] < z < WORLD[3] and -100 < y <= ABYSS_Y and max(abs(x), abs(z)) > 300
+
+
 def places(archive, ctx):
     markers, skipped, named = [], 0, 0
     for row in read_table(archive, "factionnode"):
-        if not row.name.startswith("Node_"):
+        if not row.name.startswith("Node_") or SEA_AREA.match(row.name):
             continue
-        pos = first_position(row.payload, *ctx["checks"])
+        if SEA_PLACE.match(row.name):
+            pos = first_position(row.payload, _at_sea)
+        else:
+            pos = first_position(row.payload, *ctx["checks"])
         if pos is None:
             skipped += 1
             continue
@@ -359,7 +386,10 @@ def _revive_rows(archive, ctx):
     """[(marker id, category, position)]: 2.04 grouped points, else the 2.03 reviepointinfo rows."""
     try:
         types = {r.key: r.name for r in read_table(archive, "fieldreviveinfo")}
-        groups = grouped_points(read_misc(archive, "fieldreviveinfo_misc"))
+        groups = {}
+        for blob in read_miscs(archive, "fieldreviveinfo_misc"):           # the base game's, then each DLC's
+            for key, points in grouped_points(blob).items():
+                groups.setdefault(key, []).extend(points)
     except ArchiveError:
         out = []
         for row in read_table(archive, "reviepointinfo"):
@@ -390,7 +420,7 @@ def revive_points(archive, ctx):
 
 def points_of_interest(archive, ctx):
     markers, ids, skipped = [], set(), 0
-    for name, x, y, z in placements(read_misc(archive, "levelgimmicksceneobjectinfo_misc")):
+    for name, x, y, z in (p for blob in read_miscs(archive, "levelgimmicksceneobjectinfo_misc") for p in placements(blob)):
         kind = poi_kind(name)
         if kind is None:
             skipped += 1
@@ -431,7 +461,7 @@ def resources(archive, ctx):
         strings = {}
     labels = {cat: name for cat, name, _, _ in RESOURCE_RULES}
     names, markers, seen, skipped = {}, [], set(), 0
-    for key, x, y, z in typed_placements(read_misc(archive, "levelgimmicksceneobjectinfo_misc")):
+    for key, x, y, z in (p for blob in read_miscs(archive, "levelgimmicksceneobjectinfo_misc") for p in typed_placements(blob)):
         row = types.get(key)
         cat = row and resource_category(row.name)
         if not cat:

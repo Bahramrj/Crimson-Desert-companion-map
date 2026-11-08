@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0 (Nov 8, 2026)
+
+- **Supports the "Charting the Unknown" DLC** and game patch 2.04.08 (exe 1.0.0.3576). If the DLC is
+  installed, **Import from game files** now adds its content:
+  - the islands and their coasts, island and sea caves, sunken ruins, island ruins, villages,
+    residences, sanctums and more (about 140 places), with the game's own names;
+  - Abyss ruins, Abyss Cressets, ocean puzzles and Relic Collectors at sea, and rest points on the islands;
+  - new resources (off by default): manganese nodules, shiny minerals, malachite, hydrothermal
+    deposits, obsidian, golden coral, sea fan coral, reefs, natural pearls, ambergris, anchorages and
+    businesses for rent.
+- Without the DLC, nothing changes.
+
 ## 0.9.0 (Nov 2, 2026)
 
 - **Supports game patch 2.04.05** (exe 1.0.0.3479, Steam build 26361232), base game. The

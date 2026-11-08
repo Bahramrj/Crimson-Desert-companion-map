@@ -7,7 +7,8 @@
 A live map for **Crimson Desert** on your tablet or phone, next to the game. A small Windows app
 reads where you are in the game and shows it on a map in the device's browser: the arrow moves
 and turns with you as you play, with places, shops, Abyss gates and cressets, ore, plants, crafting
-stations, chests, animals and more as markers.
+stations, chests, animals and more as markers. With the **Charting the Unknown** DLC installed, its
+islands, sea caves, sunken ruins and sea resources are on the map too.
 
 Everything runs on **your own PC and your home network**: your tablet or phone connects **straight to
 the PC over your local Wi-Fi or network**. The map is made from your own game install, and the app
@@ -21,7 +22,8 @@ doesn't use the internet, online map sites, accounts or telemetry.
 ## What you need
 
 - Windows 10 or 11 with Crimson Desert installed (Steam).
-  **Tested with game version 2.04.05** (exe 1.0.0.3479, Steam build 26361232), base game, **no DLC**.
+  **Tested with game version 2.04.08** (exe 1.0.0.3576, Steam build 26480954), with and without the
+  **Charting the Unknown** DLC (its islands, sunken ruins, sea caves and sea resources show when it is installed).
   Other versions may need an app update, see *Troubleshooting*.
 - A tablet, phone or second computer with a web browser, **on the same Wi-Fi or network as the PC**.
 - About 40 MB of disk space for the maps (about 70 MB at high resolution).
@@ -66,11 +68,13 @@ If the device cannot connect:
 | | |
 | --- | --- |
 | ![A marker card with the game's own description](docs/screenshots/map-marker.jpg) | ![The markers panel: groups and categories you can switch on and off](docs/screenshots/markers-panel.jpg) |
-| Tap a marker for its name, description and distance, and mark it as found. | Markers in foldable groups; switch categories on and off and search by name. |
-| ![The Abyss: floating islands and the bridges between them](docs/screenshots/abyss.jpg) | ![The Windows app's Connect tab with a QR code](docs/screenshots/app-connect.png) |
-| The Abyss, with its islands and bridge routes. | The Windows app: scan the code with your tablet or phone. |
-| ![The Windows app's Maps tab](docs/screenshots/app-maps.png) | <img src="docs/screenshots/phone.jpg" alt="The map on a phone" width="49%"> <img src="docs/screenshots/phone-settings.jpg" alt="The settings on a phone" width="49%"> |
-| Import the map from your own game files in a couple of minutes. | Works on phones too: follow or explore freely, zoom, opacity and more. |
+| Tap a marker for its name, description and distance, and mark it as found. | Markers in foldable groups; switch categories on and off and search by name. Here: the DLC's golden coral and sea fan coral. |
+| ![Samora Island from the Charting the Unknown DLC, with its coasts, caves, ruins and trader](docs/screenshots/map-islands.jpg) | ![The Abyss: floating islands and the bridges between them](docs/screenshots/abyss.jpg) |
+| The DLC's islands, here Samora, with the game's own place names. | The Abyss, with its islands and bridge routes. |
+| ![The Windows app's Connect tab with a QR code](docs/screenshots/app-connect.png) | ![The Windows app's Maps tab](docs/screenshots/app-maps.png) |
+| The Windows app: scan the code with your tablet or phone. | Import the map from your own game files in a few minutes. |
+| <img src="docs/screenshots/phone.jpg" alt="The map on a phone" width="49%"> <img src="docs/screenshots/phone-settings.jpg" alt="The settings on a phone" width="49%"> | |
+| Works on phones too: follow or explore freely, zoom, opacity and more. | |
 
 *Screenshots show the map made from the game's own map data; the PC address is an example.*
 
@@ -82,7 +86,8 @@ If the device cannot connect:
   realms; a realm you pick by hand stays until you tap Follow.
 - **Markers**: show or hide categories by group, search, mark markers as found (shared by every
   device), and add your own markers. You can switch the province names off here. Mining, Gathering,
-  Crafting, Treasures and Animals (about 18 000 markers) start switched off; tick the ones you want.
+  Crafting, Treasures and Animals (about 18 000 markers, about 39 000 with the DLC) start switched
+  off; tick the ones you want.
 - **Settings**: rotate the map with your heading, the arrow size, map and marker opacity,
   the theme and the toolbar position.
 - **Profiles**: save a layout (zoom, filters, opacity, …) and apply it on any device.

@@ -56,6 +56,11 @@ const GLYPHS: Record<string, string> = {
   fishing: "M15 3v10a4 4 0 0 1-8 0v-2l3 3h-1a2 2 0 0 0 4 0V3z",
   trade: "M4 8l2-4h12l2 4v2a3 3 0 0 1-4 0 3 3 0 0 1-4 0 3 3 0 0 1-4 0 3 3 0 0 1-4 0zm1 5h14v7H5zm4 2v5h6v-5z",
   landmark: "M3 19l6-10 4 6 2-3 6 7z",
+  // the sea (DLC "Charting the Unknown"): sea-* finds share the coral, anchorages get an anchor
+  sea: "M11 21v-6L7 11V6h2v4l2 2V3h2v9l2-2V5h2v6l-4 4v6z",
+  "sea-pearl": "M12 5a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm-2 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
+  "sea-reef": "M3 19l3-6 3 2 3-7 3 5 2-2 4 8z",
+  dock: "M12 2a2.5 2.5 0 0 1 1 4.8V9h3v2h-3v8a5 5 0 0 0 4-3l-1.5-.5L19 13l1 4-1.6-.6A7 7 0 0 1 5.6 16.4L4 17l1-4 3.5 2.5L7 16a5 5 0 0 0 4 3v-8H8V9h3V6.8A2.5 2.5 0 0 1 12 2z",
   animal: "M8 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm8 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM4 9a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm16 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-8 2c3 0 6 4 6 7a2 2 0 0 1-2 2c-1 0-2-1-4-1s-3 1-4 1a2 2 0 0 1-2-2c0-3 3-7 6-7z",
   // families for imported sets: quest-*, book-*, enemy-*
   quest: "M10 3h4l-1 11h-2zm2 14a2 2 0 1 1 0 4 2 2 0 0 1 0-4z",
@@ -66,7 +71,7 @@ const GLYPHS: Record<string, string> = {
 const SAME_GLYPH: Record<string, string> = {
   "craft-bonfire": "rest", "craft-forge": "blacksmith", "small-box": "chest", "boss-fragment": "memory-fragment",
   "sealed-artifact": "abyss-artifact", facility: "building", "repair-shop": "work", "house-site": "house",
-  transporter: "rest-point",
+  transporter: "rest-point", "sea-ambergris": "ore", business: "shop",
   // imported categories and families that fit an existing glyph
   item: "goods", "key-item": "goods", "kuku-pot": "goods", collectible: "abyss-artifact", mount: "stable",
   skill: "meditation", minigame: "arcade", "puzzle-clue": "puzzle", "weapon-display": "equipment",
@@ -103,6 +108,9 @@ const COLORS: Record<string, string> = {
   well: "#0369a1", chest: "#a16207", "small-box": "#92400e", "memory-fragment": "#0891b2", "boss-fragment": "#be123c",
   "sealed-artifact": "#c026d3", equipment: "#334155", donation: "#ca8a04", totem: "#581c87", arcade: "#db2777",
   facility: "#334155", "repair-shop": "#4d7c0f", "house-site": "#0f766e", transporter: "#7c3aed",
+  "ore-manganese": "#374151", "ore-quartz": "#6366f1", "ore-malachite": "#047857", "ore-hydrothermal": "#9a3412",
+  "ore-obsidian": "#1f2937", "sea-coral": "#d97706", "sea-fan-coral": "#be185d", "sea-reef": "#0f766e",
+  "sea-pearl": "#64748b", "sea-ambergris": "#a16207", dock: "#1e3a8a", business: "#7c2d12",
 };
 const PALETTE = ["#0e7490", "#7e22ce", "#be123c", "#15803d", "#b45309", "#1d4ed8", "#a21caf", "#4338ca"];
 

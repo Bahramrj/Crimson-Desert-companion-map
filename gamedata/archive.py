@@ -6,10 +6,13 @@ gamedata/NOTICE.md); this is our own implementation.
 """
 
 import fnmatch
+import logging
 import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
+
+log = logging.getLogger("cdlivemap.gamedata")
 
 M32 = 0xFFFFFFFF
 
@@ -326,27 +329,50 @@ def parse_pamt(group_dir):
 
 
 class Archive:
-    """One Crimson Desert install, opened read-only."""
+    """One Crimson Desert install, opened read-only.
+
+    An installed DLC is an overlay in dlc/<name>/: numbered groups and a meta folder of its own. Its
+    files join the base group of the same number (a DLC file replaces a base file with the same
+    path); its tables, misc tables and string tables are named <table>.<name>.* (tables.read_table,
+    tables.read_miscs and strings.load_strings merge them)."""
 
     def __init__(self, game_dir):
         self.root = Path(game_dir)
         if not (self.root / "meta" / "0.paver").is_file():
             raise ArchiveError(f"not a Crimson Desert install: {self.root}")
         self._groups = {}
-        self._pathc = None
+        self._pathcs = {}
+        self._dlcs = None
 
     def version(self):
-        with open(self.root / "meta" / "0.paver", "rb") as f:
-            raw = f.read(6)
-        major, minor, patch = struct.unpack("<3H", raw)
-        return f"{major}.{minor:02d}.{patch:02d}"
+        return _read_version(self.root / "meta" / "0.paver")
 
     def groups(self):
-        return sorted(d.name for d in self.root.iterdir() if d.is_dir() and d.name.isdigit() and (d / "0.pamt").is_file())
+        """Group numbers of the base game and of every DLC overlay."""
+        folders = [self.root] + [self.root / "dlc" / name for name in self.dlcs()]
+        return sorted({d.name for f in folders for d in f.iterdir() if d.is_dir() and d.name.isdigit() and (d / "0.pamt").is_file()})
+
+    def dlcs(self):
+        """Names of the installed DLC overlays (dlc/<name>/ with a meta/0.paver), e.g. ["dlc_01"]. A DLC's
+        0.paver holds version 0.0.0 and its name; the base game's lists the installed DLCs after its version."""
+        if self._dlcs is None:
+            folder = self.root / "dlc"
+            self._dlcs = sorted(d.name for d in folder.iterdir() if (d / "meta" / "0.paver").is_file()) if folder.is_dir() else []
+        return self._dlcs
 
     def entries(self, group):
         if group not in self._groups:
-            self._groups[group] = parse_pamt(self.root / group)
+            base = self.root / group
+            found = {e.path: e for e in parse_pamt(base)} if (base / "0.pamt").is_file() else {}
+            for name in self.dlcs():
+                overlay = self.root / "dlc" / name / group
+                if not (overlay / "0.pamt").is_file():
+                    continue
+                try:
+                    found.update((e.path, e) for e in parse_pamt(overlay))
+                except (ArchiveError, OSError, ValueError, struct.error) as e:   # the base game still reads
+                    log.warning("DLC %s group %s unreadable: %s", name, group, e)
+            self._groups[group] = list(found.values())
         return self._groups[group]
 
     def find(self, pattern, groups=None):
@@ -369,11 +395,20 @@ class Archive:
         if entry.compression == 2:
             return lz4_block(data, entry.size)
         if entry.compression == 1 and entry.path.lower().endswith(".dds"):
-            return partial_dds(self.pathc().header(entry.path), data)
+            return partial_dds(self.pathc(entry.paz.parent.parent / "meta").header(entry.path), data)
         raise ArchiveError(f"unsupported compression {entry.compression}: {entry.path}")
 
-    def pathc(self):
-        if self._pathc is None:
-            with open(self.root / "meta" / "0.pathc", "rb") as f:
-                self._pathc = Pathc(f.read())
-        return self._pathc
+    def pathc(self, meta=None):
+        """The DDS headers of the base game, or of the install part whose meta folder is `meta`."""
+        meta = Path(meta) if meta else self.root / "meta"
+        if meta not in self._pathcs:
+            with open(meta / "0.pathc", "rb") as f:
+                self._pathcs[meta] = Pathc(f.read())
+        return self._pathcs[meta]
+
+
+def _read_version(path):
+    with open(path, "rb") as f:
+        raw = f.read(6)
+    major, minor, patch = struct.unpack("<3H", raw)
+    return f"{major}.{minor:02d}.{patch:02d}"

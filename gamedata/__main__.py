@@ -51,6 +51,8 @@ def main(argv=None):
     try:
         archive = Archive(game)
         print(f"Crimson Desert {archive.version()} at {game}")
+        if archive.dlcs():
+            print(f"  DLC: {', '.join(archive.dlcs())}")
         if args.cmd == "info":
             return 0
         store = MapStore(data_dir() / "maps")

@@ -68,25 +68,41 @@ def parse(header, body):
 
 
 def read_table(archive, name):
+    """The rows of table `name`, with each DLC's <name>.<dlc> rows merged in: a DLC row replaces the
+    base row with the same key, the others are added."""
     found = {e.path.rsplit("/", 1)[1]: e for e in archive.entries("0008") if e.path.startswith(TABLE_DIR)}
-    try:
-        header, body = found[f"{name}.staticinfoheader"], found[f"{name}.staticinfobody"]
-    except KeyError:
-        raise ArchiveError(f"table {name} not found") from None
-    return parse(archive.read(header), archive.read(body))
+    rows, seen = {}, False
+    for part in [name] + [f"{name}.{d}" for d in archive.dlcs()]:
+        header, body = found.get(f"{part}.staticinfoheader"), found.get(f"{part}.staticinfobody")
+        if header and body:
+            seen = True
+            rows.update((r.key, r) for r in parse(archive.read(header), archive.read(body)))
+    if not seen:
+        raise ArchiveError(f"table {name} not found")
+    return list(rows.values())
 
 
 MISC_DIR = TABLE_DIR + "misc/"
 PLACEMENT_NAME = re.compile(rb"[A-Za-z][A-Za-z0-9_]{2,120}")
 
 
+def read_miscs(archive, name):
+    """Raw bytes of <name>.base.staticinfomisc and of each DLC's <name>.<dlc>.staticinfomisc (in misc/,
+    or next to the tables), base first."""
+    found = {e.path: e for e in archive.entries("0008")}
+    out = []
+    for part in [f"{name}.base"] + [f"{name}.{d}" for d in archive.dlcs()]:
+        entry = found.get(f"{MISC_DIR}{part}.staticinfomisc") or found.get(f"{TABLE_DIR}{part}.staticinfomisc")
+        if entry:
+            out.append(archive.read(entry))
+    if not out:
+        raise ArchiveError(f"misc table {name} not found")
+    return out
+
+
 def read_misc(archive, name):
-    """Raw bytes of <name>.base.staticinfomisc (in misc/, or next to the tables)."""
-    paths = (f"{MISC_DIR}{name}.base.staticinfomisc", f"{TABLE_DIR}{name}.base.staticinfomisc")
-    for e in archive.entries("0008"):
-        if e.path in paths:
-            return archive.read(e)
-    raise ArchiveError(f"misc table {name} not found")
+    """Raw bytes of the first of read_miscs: the base game's, if it has one."""
+    return read_miscs(archive, name)[0]
 
 
 def grouped_points(data):

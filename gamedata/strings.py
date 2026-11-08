@@ -31,20 +31,27 @@ def parse_paloc(raw):
     return out
 
 
+def _pamts(archive, group):
+    parts = [archive.root] + [archive.root / "dlc" / name for name in archive.dlcs()]
+    return [p / group / "0.pamt" for p in parts if (p / group / "0.pamt").is_file()]
+
+
 def _string_groups(archive):
     """String tables sit in small groups of their own; skip the big asset groups."""
-    small = [g for g in archive.groups() if (archive.root / g / "0.pamt").stat().st_size < 256 * 1024]
+    small = [g for g in archive.groups() if all(f.stat().st_size < 256 * 1024 for f in _pamts(archive, g))]
     return small or archive.groups()
 
 
 def load_strings(archive, table="knowledge", lang="eng"):
-    """{numeric key: text} for one table in one language ({} if it is missing)."""
-    path = f"{STRING_DIR}{lang}/{table}.paloc"
-    for group in _string_groups(archive):
-        for e in archive.entries(group):
-            if e.path == path:
-                return parse_paloc(archive.read(e))
-    return {}
+    """{numeric key: text} for one table in one language, with each DLC's <table>.<dlc>.paloc merged
+    in ({} if it is missing)."""
+    paths = [f"{STRING_DIR}{lang}/{t}.paloc" for t in [table] + [f"{table}.{d}" for d in archive.dlcs()]]
+    found = {e.path: e for group in _string_groups(archive) for e in archive.entries(group) if e.path in paths}
+    out = {}
+    for path in paths:
+        if path in found:
+            out.update(parse_paloc(archive.read(found[path])))
+    return out
 
 
 def texts_in(payload, strings, limit=2):
