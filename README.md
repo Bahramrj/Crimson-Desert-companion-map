@@ -2,13 +2,17 @@
 
 *Companion Map* for short.
 
-*A vibe-coded project, built with the help of [Claude](https://claude.ai), Anthropic's AI.*
+**[Download the latest release](https://github.com/Bahramrj/Crimson-Desert-companion-map/releases/latest)**
+for Windows · tested with Crimson Desert **2.04.08**, with or without the Charting the Unknown DLC
 
-A live map for **Crimson Desert** on your tablet or phone, next to the game. A small Windows app
-reads where you are in the game and shows it on a map in the device's browser: the arrow moves
-and turns with you as you play, with places, shops, Abyss gates and cressets, ore, plants, crafting
-stations, chests, animals and more as markers. With the **Charting the Unknown** DLC installed, its
-islands, sea caves, sunken ruins and sea resources are on the map too.
+**How it works:** a small Windows app runs on your gaming PC, and you open the map in the browser of
+your phone or tablet over your local Wi-Fi.
+
+A live map for **Crimson Desert** on your tablet or phone, next to the game. The app reads where you
+are in the game, and the arrow on the map moves and turns with you as you play, with places, shops,
+Abyss gates and cressets, ore, plants, crafting stations, chests, animals and more as markers.
+With the **Charting the Unknown** DLC installed, its islands, sea caves, sunken ruins and sea
+resources are on the map too.
 
 Everything runs on **your own PC and your home network**: your tablet or phone connects **straight to
 the PC over your local Wi-Fi or network**. The map is made from your own game install, and the app
@@ -32,7 +36,7 @@ doesn't use the internet, online map sites, accounts or telemetry.
 
 1. **Get the app**, in one of two ways:
    - **Download the prebuilt release** (easiest): get `CompanionMap-<version>-win64.zip` from the
-     [latest release](../../releases/latest), unzip it anywhere and keep the files together. The
+     [latest release](https://github.com/Bahramrj/Crimson-Desert-companion-map/releases/latest), unzip it anywhere and keep the files together. The
      `PySide6` folder next to the exe holds the Qt libraries (LGPLv3), which you may replace with
      compatible builds; see `PySide6/LICENSES/README.txt`. What changed in each version is in
      [CHANGELOG.md](CHANGELOG.md).
@@ -166,3 +170,5 @@ for a demo without the game).
   map importer reads; see [gamedata/NOTICE.md](gamedata/NOTICE.md).
 - Built with Qt for Python (PySide6, LGPLv3), aiohttp, Pillow, cryptography, segno, pymem and
   OpenLayers. Licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+*A vibe-coded project, built with the help of [Claude](https://claude.ai), Anthropic's AI.*
