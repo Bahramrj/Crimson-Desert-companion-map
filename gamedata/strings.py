@@ -42,6 +42,21 @@ def _string_groups(archive):
     return small or archive.groups()
 
 
+# The game's text languages (folder names under STRING_DIR), with the name to show for each.
+LANGUAGES = {
+    "eng": "English", "kor": "한국어", "jpn": "日本語", "zho-cn": "简体中文", "zho-tw": "繁體中文", "ger": "Deutsch", "fre": "Français",
+    "spa-es": "Español (España)", "spa-mx": "Español (México)", "por-br": "Português (Brasil)", "ita": "Italiano",
+    "pol": "Polski", "rus": "Русский", "tur": "Türkçe", "ara": "العربية",
+}
+
+
+def languages(archive):
+    """The language codes this install has string tables for, English first."""
+    found = {e.path[len(STRING_DIR):].split("/")[0] for group in _string_groups(archive) for e in archive.entries(group)
+             if e.path.startswith(STRING_DIR) and e.path.endswith("/knowledge.paloc")}
+    return sorted(found, key=lambda code: (code != "eng", code))
+
+
 def load_strings(archive, table="knowledge", lang="eng"):
     """{numeric key: text} for one table in one language, with each DLC's <table>.<dlc>.paloc merged
     in ({} if it is missing)."""

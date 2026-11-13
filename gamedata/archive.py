@@ -122,8 +122,7 @@ def lz4_block(src, size):
         if dist >= ml:
             dst += dst[start:start + ml]
         else:                                  # overlapping copy repeats the last `dist` bytes
-            for k in range(ml):
-                dst.append(dst[start + k])
+            dst += (dst[start:] * (ml // dist + 1))[:ml]
     if len(dst) != size:
         raise ArchiveError(f"LZ4 block decoded to {len(dst)} bytes, expected {size}")
     return bytes(dst)

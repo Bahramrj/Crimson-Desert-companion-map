@@ -182,16 +182,16 @@ function gameIcon(category: string, fill: string): string | null {
   try { return canvas.toDataURL("image/png"); } catch { return null; }
 }
 
-/** Data URL of a 32 px icon; found markers are grey with a tick. */
-export function iconUrl(category: string, found: boolean): string {
-  const key = `${category}|${found}`;
+/** Data URL of a 32 px icon; found markers are grey with a tick. `color`: an own marker's colour instead of its kind's. */
+export function iconUrl(category: string, found: boolean, color?: string): string {
+  const key = `${category}|${found}|${color ?? ""}`;
   let url = cache.get(key);
   if (!url && !found) {
-    url = gameIcon(category, categoryColor(category)) ?? undefined;
+    url = gameIcon(category, color || categoryColor(category)) ?? undefined;
     if (url) cache.set(key, url);
   }
   if (!url) {
-    const fill = found ? "#9ca3af" : categoryColor(category);
+    const fill = found ? "#9ca3af" : color || categoryColor(category);
     const glyph = found ? "M9.5 16.2 5.8 12.5l1.4-1.4 2.3 2.3 7.3-7.3 1.4 1.4z" : glyphOf(category);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">`
       + `<circle cx="16" cy="16" r="13" fill="${fill}" stroke="#fff" stroke-width="2.5"/>`

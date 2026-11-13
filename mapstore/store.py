@@ -22,6 +22,7 @@ ID_RE = re.compile(r"^[a-z0-9-]{1,80}$")
 MAX_POINTS = 50
 MAX_NAME = 60
 MAX_LICENCE = 300
+EXTRAS = ("roads.png",)      # files a game import may store with a map: the road grid for routes (web/src/roads.ts)
 
 
 class MapError(ValueError):
@@ -52,6 +53,7 @@ def summary(manifest):
         **manifest,
         "bounds": geo.bounds(g, w, h),
         "tiles": f"/cdlm/maps/{manifest['id']}/{manifest['rev']}/{{z}}/{{x}}/{{y}}.webp",
+        "roads": f"/cdlm/maps/{manifest['id']}/{manifest['rev']}/roads.png" if "roads.png" in manifest.get("extras", []) else None,
         "residuals": res,
         "errorM": geo.rms(res),
     }
@@ -88,8 +90,9 @@ class MapStore:
         out = {}
         for realm in REALMS:
             pick = saved.get(realm)
-            if pick not in ids:   # deleted or never set: newest map of that realm
-                pick = next((m["id"] for m in maps if m["realm"] == realm), None)
+            if pick not in ids:   # deleted or never set: newest map of that realm (a night look only if there is nothing else)
+                pick = next((m["id"] for m in maps if m["realm"] == realm and not m.get("style")),
+                            next((m["id"] for m in maps if m["realm"] == realm), None))
             out[realm] = pick
         return out
 
@@ -105,6 +108,17 @@ class MapStore:
         if rev != manifest["rev"]:
             return None
         path = self._dir(map_id) / "tiles" / str(z) / str(x) / f"{y}.webp"
+        return path if path.is_file() else None
+
+    def extra_path(self, map_id, rev, name):
+        """File of one of a map's extras (EXTRAS), or None."""
+        try:
+            manifest = self.get(map_id)
+        except NotFound:
+            return None
+        if rev != manifest["rev"] or name not in EXTRAS or name not in manifest.get("extras", []):
+            return None
+        path = self._dir(map_id) / name
         return path if path.is_file() else None
 
     # ── write ─────────────────────────────────────────────────────
@@ -128,13 +142,15 @@ class MapStore:
                             name or Path(path).stem, source, licence, game_version, fixed_georef)
 
     def import_rendered(self, render, size, realm, name, source="A", licence="", game_version=None,
-                        fixed_georef=None, replace=None, progress=None, quality=85):
+                        fixed_georef=None, replace=None, progress=None, quality=85, extras=None, style=None, made=None):
         """New map from a tile renderer (see tiler.build_from); `replace` deletes that map afterwards.
-        `quality` is the WebP quality of the tiles."""
+        `quality` is the WebP quality of the tiles; `extras` {name in EXTRAS: bytes} are stored with it;
+        `style` ("night") marks a second look of the same map, which devices pick by themselves;
+        `made` records how it was made (gamedata.worldmap uses it to skip an unchanged map)."""
         self._check(realm, source, licence)
         w, h = size
         result = self._create(lambda tiles: tiler.build_from(render, w, h, tiles, quality=quality, progress=progress),
-                              size, realm, name, source, licence, game_version, fixed_georef)
+                              size, realm, name, source, licence, game_version, fixed_georef, extras, style, made)
         if replace and replace != result["id"]:
             try:
                 self.delete(replace)
@@ -151,7 +167,7 @@ class MapStore:
         if source == "B" and not (licence or "").strip():
             raise MapError("downloaded maps need a licence note (where it came from, what it allows)")
 
-    def _create(self, build, size, realm, name, source, licence, game_version, fixed_georef):
+    def _create(self, build, size, realm, name, source, licence, game_version, fixed_georef, extras=None, style=None, made=None):
         name = (name or "").strip()[:MAX_NAME] or "Map"
         licence = (licence or ("own install, personal use" if source == "A" else "")).strip()[:MAX_LICENCE]
         w, h = size
@@ -167,11 +183,20 @@ class MapStore:
                 "georef": fixed_georef or geo.default_georef(w, h), "fixed": fixed_georef is not None,
                 "calibration": [], "gameVersion": game_version, "createdAt": now, "updatedAt": now,
             }
+            if style:
+                manifest["style"] = style
+            if made:
+                manifest["render"] = made
+            for extra, data in (extras or {}).items():
+                if extra in EXTRAS:
+                    (staging / extra).write_bytes(data)
+                    manifest.setdefault("extras", []).append(extra)
             write_json(staging / "manifest.json", manifest)
             staging.rename(self._dir(map_id))
         finally:
             shutil.rmtree(staging, ignore_errors=True)
-        self.set_active(realm, map_id)
+        if not style:                                # a second look never becomes the map shown by default
+            self.set_active(realm, map_id)
         return summary(manifest)
 
     def delete(self, map_id):

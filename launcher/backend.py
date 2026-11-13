@@ -149,6 +149,7 @@ class Backend:
             "mdns": bool(self.config and self.config.mdns),
             "urls": self.urls(),
             "clients": app["hub"].client_count if app else 0,
+            "devices": app["hub"].devices() if app else [],
             "engine": engine.state if engine else None,
             "diagnostics": dict(getattr(engine, "diagnostics", None) or {}),
             "rate": recent / 2.0,

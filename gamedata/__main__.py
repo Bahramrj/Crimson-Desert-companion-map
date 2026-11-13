@@ -15,18 +15,22 @@ import sys
 import time
 
 from gamedata import Archive, ArchiveError, find_install
-from gamedata import markers, worldmap
+from gamedata import markers, strings, worldmap
 from mapstore import MapStore
 from mapstore.markers import MarkerStore
 from server.config import Config, data_dir
 
 
-def saved_game_dir():
-    """The game folder chosen in the launcher (config.json), if any."""
+def saved_config():
+    """The launcher's settings (config.json): the game folder and the language for names."""
     try:
-        return Config.load(data_dir() / "config.json").game_dir or None
+        return Config.load(data_dir() / "config.json")
     except (OSError, ValueError):
-        return None
+        return Config()
+
+
+def saved_game_dir():
+    return saved_config().game_dir or None
 
 
 def main(argv=None):
@@ -38,9 +42,14 @@ def main(argv=None):
     imp.add_argument("--game")
     imp.add_argument("--realm", choices=("pywel", "abyss", "all"), default="all")
     imp.add_argument("--quality", choices=tuple(worldmap.QUALITY), default="default",
-                     help="default: 25600 px (~2 min per realm); high: Pywel at 51200 px (~6 min, ~2.5x disk)")
+                     help="default: 25600 px (well under a minute per realm on a recent PC); high: Pywel at 51200 px (~2.5x disk)")
     imp.add_argument("--scale", type=int, choices=worldmap.SCALES, help="render scale for every realm (overrides --quality)")
     imp.add_argument("--what", choices=("all", "maps", "markers"), default="all")
+    imp.add_argument("--force", action="store_true", help="render the maps even when they are up to date for this game version and quality")
+    imp.add_argument("--profile", action="store_true", help="after the import, list the functions that took the most time")
+    imp.add_argument("--no-night", action="store_true", help="skip the second Pywel map in night colours")
+    imp.add_argument("--lang", help="game language for marker names, e.g. eng, ger, fre, jpn (default: the launcher's setting, else eng); "
+                                    "`info` lists the ones the install has")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -54,11 +63,13 @@ def main(argv=None):
         if archive.dlcs():
             print(f"  DLC: {', '.join(archive.dlcs())}")
         if args.cmd == "info":
+            print(f"  languages: {', '.join(strings.languages(archive))}")
             return 0
         store = MapStore(data_dir() / "maps")
         realms = ("pywel", "abyss") if args.realm == "all" else (args.realm,)
         if args.what in ("all", "markers"):
-            sets, failures = markers.import_markers(archive, MarkerStore(data_dir() / "markers"))
+            lang = args.lang or saved_config().game_lang
+            sets, failures = markers.import_markers(archive, MarkerStore(data_dir() / "markers"), lang)
             for s in sets:
                 print(f"  markers: {s['id']} ({s['count']})")
             for f in failures:
@@ -70,7 +81,7 @@ def main(argv=None):
                 if done == total or done % 64 == 0:
                     print(f"\r  {realm}: tiles {done}/{total}", end="", flush=True)
             scale = args.scale or worldmap.scale_for(args.quality, realm)
-            summary, failures = worldmap.import_basemap(archive, store, realm, scale, progress)
+            summary, failures = worldmap.import_basemap(archive, store, realm, scale, progress, night=not args.no_night, force=args.force)
             print(f"\n  {realm}: {summary['id']} in {time.monotonic() - started:.0f} s"
                   + (f", {len(failures)} unreadable layer tiles (see log)" if failures else ""))
     except (ArchiveError, OSError) as e:
@@ -79,5 +90,16 @@ def main(argv=None):
     return 0
 
 
+def profiled(argv):
+    """`--profile`: run under cProfile and print where the time went (seconds per phase are in the log anyway)."""
+    import cProfile
+    import pstats
+    profile = cProfile.Profile()
+    code = profile.runcall(main, [a for a in argv if a != "--profile"])
+    print("\nSlowest functions (cumulative seconds):")
+    pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
+    return code
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(profiled(sys.argv[1:]) if "--profile" in sys.argv[1:] else main())

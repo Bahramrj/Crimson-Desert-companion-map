@@ -49,6 +49,10 @@ export interface MapSummary {
   gameVersion: string | null;
   bounds: [number, number, number, number];
   tiles: string;
+  /** "night": a second look of the realm's game map; a device shows it when "Night colours" is on. */
+  style?: string | null;
+  /** The road grid of a game-made Pywel map (web/src/roads.ts), if the import made one. */
+  roads?: string | null;
   residuals: number[];
   errorM: number | null;
 }
@@ -69,6 +73,10 @@ export interface MarkerSet {
   gameVersion: string | null;
   categories: MarkerCategory[];
   count: number;
+  /** All categories start off: `markers` leaves this set out, markerSet() fetches it when one is switched on. */
+  lazy?: boolean;
+  /** Per realm and category: [markers, found]. Lets the panel count a set that is not loaded. */
+  counts?: Partial<Record<Realm, Record<string, [number, number]>>>;
 }
 
 export interface Marker {
@@ -81,10 +89,20 @@ export interface Marker {
   z: number;
   y?: number;
   notes?: string;
+  /** Pywel markers from the game files: the province they lie in. */
+  province?: string;
+  /** Own markers: a colour instead of the colour of their kind. */
+  color?: string;
 }
 
 /** The game's own icons, cut from the install at import: a sprite sheet and a cell per category. */
 export interface IconSheet { rev: string; url: string; cells: Record<string, [number, number, number, number]> }
+
+/** What the user sets on an own marker; `category` is one of the kinds in mapstore/markers.py MINE_TYPES. */
+export interface OwnMarker { name: string; realm: Realm; x: number; z: number; notes: string; category: string; color: string }
+
+/** Per category: tick its markers when the player gets there; a tick ends by itself after this many hours. */
+export interface Rule { auto?: boolean; respawnHours?: number }
 
 export interface MarkerListing { sets: MarkerSet[]; markers: Marker[]; icons?: IconSheet | null }
 
@@ -133,10 +151,18 @@ export class Api {
   }
   resetMapCalibration(id: string) { return this.req<MapSummary>("DELETE", `/maps/${encodeURIComponent(id)}/calibration`); }
   markers() { return this.req<MarkerListing>("GET", "/markers"); }
-  progress() { return this.req<{ found: string[] }>("GET", "/progress"); }
-  setFound(key: string, found: boolean) { return this.req<{ key: string; found: boolean }>("POST", "/progress", { key, found }); }
-  addMyMarker(name: string, realm: Realm, x: number, z: number) {
-    return this.req<Marker>("POST", "/markers/mine", { name, realm, x, z });
+  markerSet(id: string) { return this.req<{ id: string; markers: Marker[] }>("GET", `/markers/sets/${encodeURIComponent(id)}`); }
+  progress() { return this.req<{ found: string[]; until?: Record<string, number> }>("GET", "/progress"); }
+  /** `category` ("<set>:<category>") lets the PC end the tick by itself when that category comes back. */
+  setFound(key: string, found: boolean, category?: string) {
+    return this.req<{ key: string; found: boolean; until?: number | null }>("POST", "/progress", { key, found, category });
   }
+  rules() { return this.req<{ categories: Record<string, Rule> }>("GET", "/rules"); }
+  setRule(category: string, patch: Rule) { return this.req<{ category: string; rule: Rule }>("PUT", "/rules", { category, ...patch }); }
+  clearTrail() { return this.req<void>("DELETE", "/trail"); }
+  backupUrl() { return this.withPin("/cdlm/api/backup"); }
+  restoreBackup(doc: unknown) { return this.req<{ added: Record<"found" | "rules" | "myMarkers" | "profiles", number> }>("POST", "/backup", doc); }
+  addMyMarker(m: OwnMarker) { return this.req<Marker>("POST", "/markers/mine", m); }
+  updateMyMarker(id: string, m: Partial<OwnMarker>) { return this.req<Marker>("PUT", `/markers/mine/${encodeURIComponent(id)}`, m); }
   deleteMyMarker(id: string) { return this.req<void>("DELETE", `/markers/mine/${encodeURIComponent(id)}`); }
 }

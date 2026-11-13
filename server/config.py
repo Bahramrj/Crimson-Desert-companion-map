@@ -1,6 +1,7 @@
 """Server settings, stored as %LOCALAPPDATA%\\CompanionMap\\config.json."""
 
 import json
+import re
 import os
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -36,6 +37,8 @@ class Config:
     start_minimized: bool = False
     map_quality: str = "default"     # game map import: "default" (2x the game layers) or "high" (Pywel at 4x)
     game_dir: str = ""               # Crimson Desert install folder; empty = find it via Steam
+    setup_done: bool = False         # the "Get started" steps of the Windows app were finished or hidden
+    game_lang: str = "eng"           # game language for marker names (gamedata/strings.LANGUAGES)
 
     @classmethod
     def load(cls, path):
@@ -65,3 +68,5 @@ class Config:
             raise ValueError("update rate must be 10-60 Hz")
         if self.map_quality not in ("default", "high"):
             raise ValueError("map quality must be default or high")
+        if not isinstance(self.game_lang, str) or not re.fullmatch(r"[a-z]{2,4}(-[a-z]{2,4})?", self.game_lang):
+            raise ValueError("game language must be a code such as eng or spa-es")

@@ -1,80 +1,128 @@
 // Device shell (tablet, phone, browser): the local map (local/olBridge.ts) with live tracking, follow mode, realm
 // switching, layout profiles and per-map calibration on top. Works fully offline.
+// Its panels, the marker card, navigation and the chrome around the map are in markersPanel.ts, settingsPanel.ts,
+// markerCard.ts, navigation.ts and chrome.ts: functions that take this App.
 import "./styles.css";
-import { Api, ApiError, type MapListing, type MapSummary, type Marker, type MarkerListing, type Profile } from "./api";
+import { Api, ApiError, type MapListing, type MapSummary, type Marker, type MarkerListing, type MarkerSet, type OwnMarker, type Profile, type Rule } from "./api";
 import type { Bridge, LatLng, MapLayer, MapMarker } from "./bridge";
-import { gameToPx, REALMS, type Realm } from "./coord";
-import { iconUrl, onIconsChanged, setGameIcons, setIconSheet } from "./local/icons";
-import { createBridge } from "./local/olBridge";
+import { quickProfiles, sheetGrip, showCoach, wake } from "./chrome";
+import { type ButtonKey, HUD_ZOOM, NARROW_LANDSCAPE, OFFLINE_MS, QUICK_PROFILES, type SheetKind, type Spot, STALE_MS, type Target, TICK_MS, TRAIL_JUMP_M, TRAIL_POINTS, TRAIL_STEP_M } from "./consts";
+import { gameToPx, type Realm, REALMS } from "./coord";
 import { Live, type PositionMsg, type ServerMsg } from "./live";
-import { DEFAULT_LAYOUT, loadPrefs, savePrefs, type Layout, type RealmMode } from "./prefs";
-import { h, icon, segmented, slider, toggle, type IconName } from "./ui";
+import { onIconsChanged, setGameIcons, setIconSheet } from "./local/icons";
+import { createBridge } from "./local/olBridge";
+import { renderCard } from "./markerCard";
+import { markersBody, renderNearby } from "./markersPanel";
+import { findWay, goToStop, navigate, nextStop, renderNav, syncRoute, whereText } from "./navigation";
+import { type Layout, loadPrefs, savePrefs } from "./prefs";
+import { loadRoads, type RoadGrid } from "./roads";
+import { profilesBody, settingsBody } from "./settingsPanel";
+import { h, icon, type IconName } from "./ui";
 
-const STALE_MS = 2000;
-const TICK_MS = 250;
-const SOURCE_LABEL = { A: "your game files", B: "download", C: "own capture" } as const;
+export class App {
+  api = new Api(new URLSearchParams(location.search).get("k") ?? "");
+  prefs = loadPrefs();
+  layout: Layout = { ...this.prefs.layout };
 
-const SEARCH_LIMIT = 40;
-// Panel sections, in this order (gamedata/markers.py GROUPS); other groups follow, "My markers" last.
-const GROUP_ORDER = ["Regions", "Locations", "Services", "Activities", "Quests", "Abyss", "Rest & travel", "Treasures",
-  "Collectibles", "Items", "Books & recipes", "Enemies", "Animals", "Crafting", "Mining", "Gathering", "Herbs",
-  "Fruits & vegetables"];
-
-type SheetKind = "markers" | "profiles" | "settings";
-type ButtonKey = "follow" | "recenter" | "zoomIn" | "zoomOut" | "realm" | "markers" | "profiles" | "settings";
-
-class App {
-  private api = new Api(new URLSearchParams(location.search).get("k") ?? "");
-  private prefs = loadPrefs();
-  private layout: Layout = { ...this.prefs.layout };
-
-  private mapEl = h("div", { id: "map", "data-testid": "map" });
-  private pill = h("div", { id: "pill", "data-testid": "pill", role: "status" }, h("span", {}, "Connecting…"));
-  private chips = h("div", { id: "chips" });
-  private toolbar = h("nav", { id: "toolbar", "aria-label": "Menu" });
-  private controls = h("div", { id: "controls", "aria-label": "Map controls", role: "group" });
-  private sheet = h("section", { id: "sheet", hidden: true, role: "dialog", "aria-modal": "false", "aria-labelledby": "sheet-title" });
-  private toast = h("div", { id: "toast", hidden: true, role: "status", "aria-live": "polite", "aria-atomic": "true" });
-  private card = h("section", { id: "card", hidden: true, "data-testid": "marker-card", role: "region", "aria-label": "Marker details" });
-  private loading = h("div", { id: "loading", role: "status", "data-testid": "loading" },
+  mapEl = h("div", { id: "map", "data-testid": "map" });
+  pill = h("div", { id: "pill", "data-testid": "pill", role: "status" }, h("span", {}, "Connecting…"));
+  chips = h("div", { id: "chips" });
+  toolbar = h("nav", { id: "toolbar", "aria-label": "Menu" });
+  controls = h("div", { id: "controls", "aria-label": "Map controls", role: "group" });
+  sheet = h("section", { id: "sheet", hidden: true, role: "dialog", "aria-modal": "false", "aria-labelledby": "sheet-title" });
+  toast = h("div", { id: "toast", hidden: true, role: "status", "aria-live": "polite", "aria-atomic": "true" });
+  card = h("section", { id: "card", hidden: true, "data-testid": "marker-card", role: "region", "aria-label": "Marker details" });
+  loading = h("div", { id: "loading", role: "status", "data-testid": "loading" },
     h("span", { class: "spinner", "aria-hidden": "true" }), h("span", {}, "Loading the map…"));
-  private sheetOpener: HTMLElement | null = null;   // focus goes back here when the sheet closes
-  private buttons = {} as Record<ButtonKey, HTMLButtonElement>;
+  sheetOpener: HTMLElement | null = null;   // focus goes back here when the sheet closes
+  buttons = {} as Record<ButtonKey, HTMLButtonElement>;
 
-  private bridge!: Bridge;
-  private wsOpen = false;
-  private engine = { status: "waiting_for_game", message: "" };
-  private pos: PositionMsg | null = null;
-  private lastTs: number | null | undefined = undefined;
-  private freshAt = 0;
-  private shownRealm: Realm = "pywel";
-  private askRealm: Realm | null = null;
+  bridge!: Bridge;
+  wsOpen = false;
+  everOpen = false;                 // the first connection: start() is already loading maps and markers
+  renderKey = "";
+  engine = { status: "waiting_for_game", message: "" };
+  pos: PositionMsg | null = null;
+  lastTs: number | null | undefined = undefined;
+  freshAt = 0;
+  shownRealm: Realm = "pywel";
+  askRealm: Realm | null = null;
   /** The user picked the realm the player is not in: no automatic switching until the player
    *  changes realm, or follow / recenter takes the view back to the player. */
-  private realmPinned = false;
-  private maps: MapListing | null = null;
-  private calibrating: Realm | null = null;
-  private markerData: MarkerListing | null = null;
-  private markerIndex = new Map<string, Marker>();
-  private found = new Set<string>();
-  private offKeys = new Set<string>();     // categories hidden until switched on
-  private selected: string | null = null;
-  private addingByTap = false;
-  private query = "";
-  private profiles: Profile[] = [];
-  private defaultProfileId: string | null = null;
-  private sheetKind: SheetKind | null = null;
-  private toastTimer = 0;
-  private live = new Live(this.api.withPin(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/cdlm/ws`), {
-    open: () => { this.wsOpen = true; void this.loadMaps(); void this.loadMarkers(); this.render(); },
-    close: () => { this.wsOpen = false; this.render(); },
+  realmPinned = false;
+  maps: MapListing | null = null;
+  calibrating: Realm | null = null;
+  markerData: MarkerListing | null = null;
+  markerIndex = new Map<string, Marker>();
+  found = new Set<string>();
+  until = new Map<string, number>();   // found ticks that end by themselves: key -> epoch seconds
+  rules: Record<string, Rule> = {};    // per category "<set>:<category>"
+  rulesOpen = false;                   // the rules part of the marker card is unfolded
+  offKeys = new Set<string>();     // categories hidden until switched on
+  trail: Partial<Record<Realm, ([number, number] | null)[]>> = {};
+  hud = false;                        // the minimal view: only the map, the arrow and the status
+  hudBefore = { follow: true, rotate: false };
+  hudZoom = 0;
+  hudWant = 0;
+  hudWantTicks = 0;
+  speed = 0;                          // m/s, smoothed
+  lastPosAt = 0;
+  hudExit = h("button", { type: "button", id: "hud-exit", "data-testid": "hud-exit", onclick: () => this.setHud(false) }, "Show controls");
+  /** An own marker being made (id null) or changed; its form is in the card. */
+  editing: (OwnMarker & { id: string | null }) | null = null;
+  roads: RoadGrid | null = null;       // the Pywel road grid, when the game import made one
+  roadsUrl = "";
+  way: [number, number][] | null = null;   // the road route ahead: game [x, z], ending at the target
+  wayAt = 0;                           // when it was last searched (0: not yet for this target)
+  tour: { keys: string[]; index: number } | null = null;   // a route through several markers
+  navNext = h("button", { type: "button", "data-testid": "nav-next", hidden: true, onclick: () => nextStop(this) }, "Next");
+  measureFrom: Spot | null = null;    // "Measure from here": cards show the distance to this spot
+  closedAt = performance.now();        // when the connection to the PC was lost (or the page started)
+  loadbar = h("div", { id: "loadbar", hidden: true, "aria-hidden": "true" });
+  loadTimer = 0;
+  idleTimer = 0;
+  quick = h("div", { id: "quick", hidden: true, role: "menu", "aria-label": "Apply a profile", "data-testid": "quick" });
+  coach = h("div", { id: "coach", hidden: true, role: "dialog", "aria-label": "Tips", "data-testid": "coach" });
+  coachStep = -1;
+  point: Spot | null = null;          // a spot picked with a long press (its card is open)
+  target: Target | null = null;       // where "Navigate" leads
+  nav = h("div", { id: "nav", hidden: true, "data-testid": "nav", role: "status" });
+  navName = h("strong", {});
+  navInfo = h("span", { "data-testid": "nav-info" });
+  cardWhere: HTMLElement | null = null;   // the live "600 m away · east" line of the open card
+  cardSpot: Spot | null = null;
+  nearbyEl: HTMLElement | null = null;
+  nearbyKeys = "";
+  ticks = 0;
+  loadedSets = new Set<string>();  // sets whose markers are in markerIndex (lazy ones join when switched on)
+  loadingSets = new Set<string>();
+  selected: string | null = null;
+  addingByTap = false;
+  query = "";
+  profiles: Profile[] = [];
+  defaultProfileId: string | null = null;
+  sheetKind: SheetKind | null = null;
+  toastTimer = 0;
+  live = new Live(this.api.withPin(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/cdlm/ws`), {
+    open: () => {
+      this.wsOpen = true;
+      // after a reconnect the PC may have new maps or markers; on the first connection start() loads them
+      if (this.everOpen) { void this.loadMaps(); void this.loadMarkers(); void this.loadRules(); }
+      this.everOpen = true;
+      this.render();
+    },
+    close: () => { this.wsOpen = false; this.closedAt = performance.now(); this.render(); },
     message: (msg) => this.onMessage(msg),
   });
 
   async start() {
     this.buildToolbar();
-    document.body.append(this.mapEl, this.pill, this.chips, this.controls, this.toolbar, this.sheet, this.card, this.toast, this.loading);
+    this.nav.append(h("div", { class: "nav-text" }, this.navName, this.navInfo), this.navNext,
+      h("button", { type: "button", "data-testid": "nav-stop", onclick: () => navigate(this, null) }, "Stop"));
+    document.body.append(this.loadbar, this.quick, this.coach);
+    document.body.append(this.mapEl, this.pill, this.nav, this.hudExit, this.chips, this.controls, this.toolbar, this.sheet, this.card, this.toast, this.loading);
     document.addEventListener("keydown", (e) => this.onKey(e));
+    sheetGrip(this);
     this.bridge = createBridge(this.mapEl);
     setGameIcons(this.layout.gameIcons);
     onIconsChanged(() => {            // panel rows and the marker card show icons too
@@ -83,22 +131,42 @@ class App {
     });
     this.bridge.onUserPan(() => { if (this.layout.follow) this.setFollow(false); });
     this.bridge.onTap((ll, key) => void this.onMapTap(ll, key));
+    this.bridge.onRotate((deg) => this.showCompass(deg));
+    this.bridge.onLongPress((ll) => this.pickPoint(ll));
+    this.bridge.onLoading((busy) => {                 // a thin bar while map tiles arrive; not for a blink
+      clearTimeout(this.loadTimer);
+      if (busy) this.loadTimer = window.setTimeout(() => { this.loadbar.hidden = false; }, 250);
+      else this.loadbar.hidden = true;
+    });
+    for (const type of ["pointerdown", "keydown", "wheel"]) document.addEventListener(type, () => wake(this), true);
+    document.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") wake(this); }, true);
+    document.addEventListener("pointerdown", (e) => {     // a tap elsewhere closes the quick profile list
+      if (!this.quick.hidden && !this.quick.contains(e.target as Node)) this.quick.hidden = true;
+    }, true);
+    matchMedia(NARROW_LANDSCAPE).addEventListener("change", () => this.applyLayoutChrome());
+    quickProfiles(this, this.buttons.profiles);
     this.applyLayoutChrome();
     this.bridge.setFollow(this.layout.follow);
     this.bridge.setOpacity(this.layout.mapOpacity, this.layout.markerOpacity);
+    this.syncMapLook();
     this.live.start();
     setInterval(() => this.tick(), TICK_MS);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") { this.live.kick(); void this.keepAwake(); }
     });
     void this.keepAwake();
-    await Promise.all([this.loadMaps(), this.loadProfiles(true), this.loadMarkers()]);
+    await Promise.all([this.loadMaps(), this.loadProfiles(true), this.loadMarkers(), this.loadRules()]);
+    if (!this.prefs.coached) showCoach(this, 0);
+    if (this.prefs.tour) {                 // a route was in progress before the page was reloaded
+      this.tour = { keys: [...this.prefs.tour.keys], index: this.prefs.tour.index };
+      goToStop(this);
+    }
     (window as unknown as { cdlmShell: unknown }).cdlmShell = { state: () => this.debugState() };
   }
 
   // ── toolbar and chrome ─────────────────────────────────────────
 
-  private buildToolbar() {
+  buildToolbar() {
     const make = (key: ButtonKey, name: IconName, label: string, onclick: () => void, prefix = "tb", caption = "") => {
       const b = h("button", { type: "button", class: `tb ${key}`, "aria-label": label, title: label, "data-testid": `${prefix}-${key}`, onclick },
         icon(name), caption && h("span", { class: "caption", "aria-hidden": "true" }, caption));
@@ -115,39 +183,70 @@ class App {
     // on the map: follow / free explore, then zoom in, recenter, zoom out
     const follow = make("follow", "follow", "Follow player", () => this.setFollow(!this.layout.follow), "ctl");
     follow.append(icon("free"), h("span", { class: "caption", "data-testid": "follow-mode" }));
-    this.controls.append(follow,
+    const compass = make("compass", "compass", "Turn the map north up", () => this.northUp(), "ctl");
+    compass.hidden = true;                 // shows only while the map is turned
+    this.controls.append(follow, compass,
       h("div", { class: "zoom" },
         make("zoomIn", "plus", "Zoom in", () => this.bridge.zoomBy(1), "ctl"),
         make("recenter", "recenter", "Show my position", () => this.recenter(), "ctl"),
         make("zoomOut", "minus", "Zoom out", () => this.bridge.zoomBy(-1), "ctl")));
   }
 
-  private applyLayoutChrome() {
+  /** The compass needle points to the map's north; the button is only there while the map is turned. */
+  showCompass(bearingDeg: number) {
+    const b = this.buttons.compass;
+    b.hidden = Math.abs(bearingDeg) < 0.5;
+    b.style.setProperty("--north", `${-bearingDeg}deg`);
+  }
+
+  northUp() {
+    if (this.layout.rotateWithHeading) {   // heading-up would turn it straight back
+      this.layout.rotateWithHeading = false;
+      this.saveLayout();
+      if (this.sheetKind === "settings") this.renderSheet();
+      this.notify("Rotate with heading is off");
+    }
+    this.bridge.setBearingDeg(0);
+  }
+
+  // ── buttons that step back while following ─────────────────────
+
+  // ── the quick profile list: hold the Profiles button ───────────
+
+  // ── first-run tips ─────────────────────────────────────────────
+
+  applyLayoutChrome() {
     const root = document.documentElement;
     if (this.layout.theme === "auto") delete root.dataset.theme; else root.dataset.theme = this.layout.theme;
-    document.body.dataset.toolbar = this.layout.toolbarSide;
+    // a phone on its side has no height for a bottom bar: the toolbar goes to the left there
+    const narrow = this.layout.toolbarSide === "bottom" && matchMedia(NARROW_LANDSCAPE).matches;
+    document.body.dataset.toolbar = narrow ? "left" : this.layout.toolbarSide;
     const dark = this.layout.theme === "dark" || (this.layout.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0b0d11" : "#eef0f4");
   }
 
-  private onKey(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented) return;
+  onKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || e.defaultPrevented || document.querySelector("dialog[open]")) return;     // a question handles its own Escape
     if (this.sheetKind) {
       if (this.sheetKind === "markers") { this.layout.sidebar = "collapsed"; this.saveLayout(); }
       this.closeSheet();
-    } else if (this.selected) this.selectMarker(null);
+    } else if (!this.quick.hidden) this.quick.hidden = true;
+    else if (this.coachStep >= 0) showCoach(this, -1);
+    else if (this.selected || this.point || this.editing) this.selectMarker(null);
+    else if (this.hud) this.setHud(false);
+    else if (this.target) navigate(this, null);
     else if (this.calibrating || this.addingByTap) { this.calibrating = null; this.addingByTap = false; }
     else return;
     e.preventDefault();
     this.render();
   }
 
-  private saveLayout() {
+  saveLayout() {
     this.prefs.layout = { ...this.layout };
     savePrefs(this.prefs);
   }
 
-  private notify(text: string) {
+  notify(text: string) {
     this.toast.textContent = text;
     this.toast.hidden = false;
     clearTimeout(this.toastTimer);
@@ -156,18 +255,23 @@ class App {
 
   // ── maps ───────────────────────────────────────────────────────
 
-  private activeMap(realm: Realm): MapSummary | null {
+  activeMap(realm: Realm): MapSummary | null {
     const id = this.maps?.active[realm];
     return this.maps?.maps.find((m) => m.id === id) ?? null;
   }
 
-  private layerFor(realm: Realm): MapLayer | null {
-    const m = this.activeMap(realm);
+  /** The realm's game map in night colours, when this device asks for them and the import made one. */
+  nightMap(realm: Realm): MapSummary | null {
+    return this.prefs.darkMap ? this.maps?.maps.find((m) => m.realm === realm && m.style === "night") ?? null : null;
+  }
+
+  layerFor(realm: Realm): MapLayer | null {
+    const m = this.nightMap(realm) ?? this.activeMap(realm);
     return m && { id: m.id, rev: m.rev, image: m.image, tileSize: m.tileSize, maxZoom: m.maxZoom,
       bounds: m.bounds, tiles: this.api.withPin(m.tiles) };
   }
 
-  private async loadMaps() {
+  async loadMaps() {
     try {
       this.maps = await this.api.maps();
     } catch (e) {
@@ -176,12 +280,28 @@ class App {
     } finally {
       this.loading.hidden = true;
     }
-    this.bridge.setMap(this.layerFor(this.shownRealm));
+    this.syncMapLook();
     if (this.sheetKind === "settings") this.renderSheet();
     this.render();
+    void this.loadRoadGrid();
   }
 
-  private showRealm(realm: Realm, manual = false) {
+  async loadRoadGrid() {
+    const map = this.activeMap("pywel");
+    const url = map?.roads ? this.api.withPin(map.roads) : "";
+    if (url === this.roadsUrl) return;
+    this.roadsUrl = url;
+    this.roads = null;
+    if (!map || !url) return;
+    try {
+      const grid = await loadRoads(url, map.bounds);
+      if (this.roadsUrl !== url) return;
+      this.roads = grid;
+      findWay(this);
+    } catch { /* no grid: routes are straight lines */ }
+  }
+
+  showRealm(realm: Realm, manual = false) {
     this.askRealm = null;
     if (manual) this.realmPinned = !!this.pos && this.pos.realm !== realm;
     if (realm === this.shownRealm) return;
@@ -189,6 +309,8 @@ class App {
     this.calibrating = null;
     this.bridge.setMap(this.layerFor(realm));
     this.selectMarker(null);
+    syncRoute(this);
+    this.syncMapLook();
     this.updateMarkers();
     if (manual && this.pos && this.pos.realm !== realm) this.setFollow(false);
     this.updatePlayer();
@@ -198,7 +320,7 @@ class App {
 
   // ── live data ──────────────────────────────────────────────────
 
-  private onMessage(msg: ServerMsg) {
+  onMessage(msg: ServerMsg) {
     switch (msg.type) {
       case "status":
         this.engine = { status: msg.status, message: msg.message };
@@ -216,19 +338,28 @@ class App {
         void this.loadMarkers();
         break;
       case "progress_changed":
-        if (msg.found) this.found.add(msg.key); else this.found.delete(msg.key);
-        this.updateMarkers();
+        if (msg.found && msg.until) this.until.set(msg.key, msg.until); else this.until.delete(msg.key);
+        if (msg.auto && msg.found && !this.found.has(msg.key)) this.notify(`Found: ${msg.name || "a marker"} (ticked as you got there)`);
+        this.applyFound(msg.key, msg.found);
+        break;
+      case "trail":
+        this.trail = msg.points;
+        this.syncMapLook();
+        break;
+      case "rules_changed":
+        void this.loadRules();
         break;
     }
     this.render();
   }
 
-  private onPosition(msg: PositionMsg) {
+  onPosition(msg: PositionMsg) {
     if (msg.ts !== this.lastTs) {
       this.lastTs = msg.ts;
       this.freshAt = performance.now();
     }
     const realmChanged = this.pos?.realm !== msg.realm;
+    this.trackMovement(msg);
     this.pos = msg;
     if (realmChanged) this.realmPinned = false;           // the player moved realm: follow them again
     if (msg.realm !== this.shownRealm) {
@@ -243,30 +374,130 @@ class App {
     if (this.layout.rotateWithHeading && msg.heading != null && msg.realm === this.shownRealm) this.bridge.setBearingDeg(msg.heading);
   }
 
-  private playerLatLng(): LatLng | null {
+  /** Speed (for the minimal view's zoom) and the trail, from one position to the next. */
+  trackMovement(msg: PositionMsg) {
+    const now = performance.now();
+    const dt = (now - this.lastPosAt) / 1000;
+    if (this.pos && this.pos.realm === msg.realm && dt > 0.02 && dt < 5) {
+      const v = Math.min(60, Math.hypot(msg.x - this.pos.x, msg.z - this.pos.z) / dt);
+      this.speed += (v - this.speed) * Math.min(1, dt / 2);
+    }
+    this.lastPosAt = now;
+    const points = this.trail[msg.realm] ??= [];
+    let last: [number, number] | null = null;
+    for (let i = points.length - 1; i >= 0 && !last; i--) last = points[i];
+    const step = last ? Math.hypot(msg.x - last[0], msg.z - last[1]) : Infinity;
+    if (step < TRAIL_STEP_M) return;
+    if (last && step > TRAIL_JUMP_M && points[points.length - 1]) points.push(null);
+    points.push([msg.x, msg.z]);
+    if (points.length > TRAIL_POINTS) points.splice(0, points.length - TRAIL_POINTS);
+    if (this.prefs.trail && msg.realm === this.shownRealm) this.bridge.setTrail(points);
+  }
+
+  /** What depends on the shown realm and on per-device switches: the trail and the night colours. */
+  syncMapLook() {
+    this.bridge.setTrail(this.prefs.trail ? this.trail[this.shownRealm] ?? [] : null);
+    // night colours: the night map of the import if there is one, else a colour filter (the Abyss map is dark already)
+    if (this.maps) this.bridge.setMap(this.layerFor(this.shownRealm));
+    this.bridge.setDark(this.prefs.darkMap && this.shownRealm === "pywel" && !this.nightMap("pywel"));
+    this.bridge.setHeat(this.prefs.heat);
+    this.bridge.setDarkLabels(this.shownRealm === "abyss" || (!!this.maps && !this.activeMap(this.shownRealm))
+      || (this.prefs.darkMap && this.shownRealm === "pywel"));
+  }
+
+  /** The minimal view: follow, heading up, zoom by speed, no buttons. Leaving it puts things back. */
+  setHud(on: boolean) {
+    if (on === this.hud) return;
+    this.hud = on;
+    document.body.toggleAttribute("data-hud", on);
+    if (on) {
+      this.hudBefore = { follow: this.layout.follow, rotate: this.layout.rotateWithHeading };
+      this.closeSheet();
+      this.selectMarker(null);
+      this.layout.rotateWithHeading = true;
+      this.hudZoom = this.hudWant = 0;
+      this.setFollow(true);
+      if (this.pos?.heading != null) this.bridge.setBearingDeg(this.pos.heading);
+    } else {
+      this.layout.rotateWithHeading = this.hudBefore.rotate;
+      if (!this.hudBefore.rotate) this.bridge.setBearingDeg(0);
+      this.setFollow(this.hudBefore.follow);
+    }
+    this.render();
+  }
+
+  hudTick() {
+    const want = HUD_ZOOM.find(([below]) => this.speed < below)![1];
+    this.hudWantTicks = want === this.hudWant ? this.hudWantTicks + 1 : 0;
+    this.hudWant = want;
+    // a new pace has to last two seconds, so a short stop does not pump the zoom (the first one applies at once)
+    if (want !== this.hudZoom && (this.hudZoom === 0 || this.hudWantTicks >= 8)) {
+      this.hudZoom = want;
+      this.bridge.zoomTo(want);
+    }
+  }
+
+  playerLatLng(): LatLng | null {
     if (!this.pos || this.pos.realm !== this.shownRealm) return null;
     return [this.pos.z, this.pos.x];
   }
 
-  private isStale() {
+  isStale() {
     return !this.wsOpen || this.engine.status !== "attached" || performance.now() - this.freshAt > STALE_MS;
   }
 
-  private updatePlayer() {
+  updatePlayer() {
     const ll = this.playerLatLng();
     this.bridge.setPlayer(ll && {
       lat: ll[0], lng: ll[1], heading: this.pos?.heading ?? null, stale: this.isStale(), size: this.layout.markerSize,
     });
   }
 
-  private tick() {
+  tick() {
     this.updatePlayer();
     this.render();
+    renderNav(this);
+    if (this.hud) this.hudTick();
+    if (this.cardWhere && this.cardSpot) this.cardWhere.textContent = whereText(this, this.cardSpot);
+    if (++this.ticks % 4 === 0 && this.sheetKind === "markers") renderNearby(this);
+  }
+
+  // ── where things are from the player: distance, direction, height ──
+
+  // ── navigation and picked spots ────────────────────────────────
+
+  // ── a route through the markers on screen ──────────────────────
+
+  pickPoint(ll: LatLng) {
+    if (this.calibrating || this.addingByTap) return;
+    this.selected = null;
+    this.bridge.highlight(null);
+    this.point = { realm: this.shownRealm, x: ll[1], z: ll[0] };
+    syncRoute(this);
+    renderCard(this);
+  }
+
+  async copyText(text: string) {
+    try {
+      if (window.isSecureContext && navigator.clipboard) await navigator.clipboard.writeText(text);
+      else {                                  // plain HTTP on the LAN: no clipboard API
+        const area = h("textarea", { class: "sr-only", readonly: true });
+        area.value = text;
+        document.body.append(area);
+        area.select();
+        const ok = document.execCommand("copy");
+        area.remove();
+        if (!ok) throw new Error("copy refused");
+      }
+      this.notify(`Copied: ${text}`);
+    } catch {
+      this.notify(text);                      // at least show it
+    }
   }
 
   // ── actions ────────────────────────────────────────────────────
 
-  private setFollow(on: boolean) {
+  setFollow(on: boolean) {
     if (on) this.toPlayerRealm();
     this.layout.follow = on;
     this.saveLayout();
@@ -275,20 +506,20 @@ class App {
   }
 
   /** Show the realm the player is in (follow and recenter go to the player). */
-  private toPlayerRealm() {
+  toPlayerRealm() {
     this.realmPinned = false;
     if (this.pos && this.pos.realm !== this.shownRealm) this.showRealm(this.pos.realm);
   }
 
   /** Centre the map on the player once; follow / free explore stays as it is. */
-  private recenter() {
+  recenter() {
     if (!this.pos) { this.notify("No live position yet"); return; }
     this.toPlayerRealm();
     const ll = this.playerLatLng();
     if (ll) this.bridge.panTo(ll);
   }
 
-  private async keepAwake() {
+  async keepAwake() {
     const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<unknown> } };
     if (!window.isSecureContext || !nav.wakeLock) return false;
     try { await nav.wakeLock.request("screen"); return true; } catch { return false; }
@@ -296,14 +527,21 @@ class App {
 
   // ── markers ────────────────────────────────────────────────────
 
-  private async loadMarkers() {
+  async loadMarkers() {
     try {
       const [data, progress] = await Promise.all([this.api.markers(), this.api.progress()]);
+      const offKeys = new Set(data.sets.flatMap((s) => s.categories.filter((c) => c.off).map((c) => `${s.id}:${c.id}`)));
+      // Sets that start switched off (ore, plants, animals: most of the markers) are not in the list;
+      // fetch the ones in use: already loaded here, or with a category switched on.
+      const inUse = data.sets.filter((s) => s.lazy && (this.loadedSets.has(s.id) || this.setInUse(s, offKeys)));
+      const extra = await Promise.all(inUse.map((s) => this.api.markerSet(s.id)));
       this.markerData = data;
       setIconSheet(data.icons, (path) => this.api.withPin(path));
-      this.markerIndex = new Map(data.markers.map((m) => [`${m.set}:${m.id}`, m]));
-      this.offKeys = new Set(data.sets.flatMap((s) => s.categories.filter((c) => c.off).map((c) => `${s.id}:${c.id}`)));
+      this.markerIndex = new Map([...data.markers, ...extra.flatMap((e) => e.markers)].map((m) => [`${m.set}:${m.id}`, m]));
+      this.loadedSets = new Set([...data.sets.filter((s) => !s.lazy).map((s) => s.id), ...extra.map((e) => e.id)]);
+      this.offKeys = offKeys;
       this.found = new Set(progress.found);
+      this.until = new Map(Object.entries(progress.until ?? {}));
     } catch (e) {
       this.notify(`Markers not loaded: ${(e as Error).message}`);
       return;
@@ -312,33 +550,91 @@ class App {
     this.updateMarkers();
   }
 
-  private catKey(m: Marker) {
+  async loadRules() {
+    try {
+      this.rules = (await this.api.rules()).categories;
+    } catch { return; }                        // an older PC app: no rules
+    renderCard(this);
+  }
+
+  async setRule(category: string, patch: Rule) {
+    try {
+      const { rule } = await this.api.setRule(category, patch);
+      if (Object.keys(rule).length) this.rules[category] = rule; else delete this.rules[category];
+    } catch (e) {
+      this.notify(`Not saved: ${(e as Error).message}`);
+    }
+    renderCard(this);
+  }
+
+  catKey(m: Marker) {
     return `${m.set}:${m.category}`;
   }
 
-  private catHidden(key: string) {
-    return this.offKeys.has(key) ? !this.layout.show.includes(key) : this.layout.hide.includes(key);
+  catHidden(key: string, offKeys = this.offKeys) {
+    return offKeys.has(key) ? !this.layout.show.includes(key) : this.layout.hide.includes(key);
   }
 
-  private isShown(m: Marker) {
+  setInUse(set: MarkerSet, offKeys = this.offKeys) {
+    return set.categories.some((c) => !this.catHidden(`${set.id}:${c.id}`, offKeys));
+  }
+
+  /** Fetch the lazy sets that are switched on but not loaded yet (`all`: every lazy set, for the search).
+   *  Resolves to true when markers were added. */
+  async ensureSets(all = false): Promise<boolean> {
+    const data = this.markerData;
+    const want = (data?.sets ?? []).filter((s) => s.lazy && !this.loadedSets.has(s.id) && !this.loadingSets.has(s.id)
+      && (all || this.setInUse(s)));
+    if (!want.length) return false;
+    want.forEach((s) => this.loadingSets.add(s.id));
+    try {
+      const got = await Promise.all(want.map((s) => this.api.markerSet(s.id)));
+      if (this.markerData !== data) return false;          // the list was reloaded meanwhile, with what it needs
+      for (const set of got) {
+        for (const m of set.markers) this.markerIndex.set(`${m.set}:${m.id}`, m);
+        this.loadedSets.add(set.id);
+      }
+    } catch (e) {
+      this.notify(`Markers not loaded: ${(e as Error).message}`);
+      return false;
+    } finally {
+      want.forEach((s) => this.loadingSets.delete(s.id));
+    }
+    this.updateMarkers();
+    return true;
+  }
+
+  isShown(m: Marker) {
     const key = `${m.set}:${m.id}`;
     return m.realm === this.shownRealm && !this.catHidden(this.catKey(m))
       && !(this.layout.hideFound && this.found.has(key));
   }
 
-  private updateMarkers() {
+  updateMarkers() {
     const list: MapMarker[] = [];
     for (const [key, m] of this.markerIndex) {
       if (this.isShown(m) || key === this.selected) {
-        list.push({ key, name: m.name, category: m.category, x: m.x, z: m.z, found: this.found.has(key) });
+        list.push({ key, name: m.name, category: m.category, x: m.x, z: m.z, found: this.found.has(key), color: m.color });
       }
     }
     this.bridge.setMarkers(list);
-    this.renderCard();
+    renderCard(this);
+    if (this.sheetKind === "markers") this.renderSheet();
+    void this.ensureSets();                 // a category of a set that is not loaded yet was switched on
+  }
+
+  /** One marker found / not found (from this device or another one): redraw only that marker. */
+  applyFound(key: string, found: boolean) {
+    if (this.found.has(key) === found) return;
+    if (found) this.found.add(key); else this.found.delete(key);
+    if (found && this.tour && this.target?.key === key) nextStop(this);        // this stop of the route is done
+    if (this.layout.hideFound) { this.updateMarkers(); return; }     // it leaves or joins the map
+    this.bridge.setFound(key, found);
+    renderCard(this);
     if (this.sheetKind === "markers") this.renderSheet();
   }
 
-  private setHidden(keys: string[], hidden: boolean) {
+  setHidden(keys: string[], hidden: boolean) {
     const hide = new Set(this.layout.hide);
     const show = new Set(this.layout.show);
     for (const k of keys) {
@@ -351,190 +647,68 @@ class App {
     this.updateMarkers();
   }
 
-  private selectMarker(key: string | null, pan = false) {
+  selectMarker(key: string | null, pan = false) {
     this.selected = key;
+    this.editing = null;
+    this.point = null;
+    syncRoute(this);
     this.bridge.highlight(key);
     const m = key ? this.markerIndex.get(key) : null;
     if (m && pan) {
       if (this.layout.follow) this.setFollow(false);
       this.bridge.panTo([m.z, m.x], Math.max(this.bridge.getView().zoom, 5));
     }
-    this.renderCard();
+    renderCard(this);
   }
 
-  private async setFound(key: string, found: boolean) {
+  async setFound(key: string, found: boolean) {
     try {
-      await this.api.setFound(key, found);     // progress_changed updates every device, this one included
-      if (found) this.found.add(key); else this.found.delete(key);
-      this.updateMarkers();
+      const m = this.markerIndex.get(key);
+      const done = await this.api.setFound(key, found, m && this.catKey(m));     // progress_changed tells every device
+      if (found && done.until) this.until.set(key, done.until); else this.until.delete(key);
+      this.applyFound(key, found);
+      renderCard(this);
     } catch (e) {
       this.notify(`Not saved: ${(e as Error).message}`);
     }
   }
 
-  private async addMarker(x: number, z: number) {
-    const name = prompt("Marker name", "")?.trim();
-    if (!name) return;
+  /** Start a new own marker at this spot: its form opens in the card. */
+  addMarker(x: number, z: number) {
+    this.selectMarker(null);
+    this.editing = { id: null, realm: this.shownRealm, x, z, name: "", notes: "", category: "mine", color: "" };
+    renderCard(this, true);
+    this.card.querySelector<HTMLInputElement>('[data-testid="edit-name"]')?.focus();
+  }
+
+  async saveEditing() {
+    const e = this.editing;
+    if (!e) return;
+    const { id, ...fields } = e;
+    fields.name = fields.name.trim();
+    if (!fields.name) { this.card.querySelector<HTMLInputElement>('[data-testid="edit-name"]')?.focus(); return; }
     try {
-      const m = await this.api.addMyMarker(name, this.shownRealm, x, z);
+      const m = id ? await this.api.updateMyMarker(id, fields) : await this.api.addMyMarker(fields);
+      this.editing = null;
       await this.loadMarkers();
       this.selectMarker(`${m.set}:${m.id}`);
-      this.notify(`Added "${name}"`);
-    } catch (e) {
-      this.notify(`Not added: ${(e as Error).message}`);
+      this.notify(id ? `Saved "${m.name}"` : `Added "${m.name}"`);
+    } catch (err) {
+      this.notify(`Not saved: ${(err as Error).message}`);
     }
   }
 
-  private renderCard() {
-    const m = this.selected ? this.markerIndex.get(this.selected) : null;
-    this.card.hidden = !m;
-    if (!m) { this.card.replaceChildren(); return; }
-    const key = this.selected!;
-    const set = this.markerData?.sets.find((s) => s.id === m.set);
-    const cat = set?.categories.find((c) => c.id === m.category);
-    const isFound = this.found.has(key);
-    const dist = this.pos && this.pos.realm === m.realm ? Math.hypot(this.pos.x - m.x, this.pos.z - m.z) : null;
-    this.card.replaceChildren(
-      h("div", { class: "card-head" },
-        h("img", { class: "card-icon", src: iconUrl(m.category, isFound), alt: "" }),
-        h("div", { class: "card-title" }, h("strong", { "data-testid": "card-name" }, m.name),
-          h("span", { class: "muted" }, [cat?.name ?? m.category, dist != null ? `${dist < 1000 ? dist.toFixed(0) + " m" : (dist / 1000).toFixed(1) + " km"} away` : null]
-            .filter(Boolean).join(" · "))),
-        h("button", { type: "button", class: "tb", "aria-label": "Close marker details", title: "Close",
-          onclick: () => this.selectMarker(null) }, icon("close"))),
-      ...(m.notes ? [h("p", { class: "notes" }, m.notes)] : []),
-      h("div", { class: "row" },
-        h("button", { type: "button", class: `btn small${isFound ? "" : " primary"}`, "data-testid": "card-found", "aria-pressed": String(isFound),
-          onclick: () => void this.setFound(key, !isFound) }, isFound ? "Found ✓ (undo)" : "Mark found"),
-        h("button", { type: "button", class: "btn small", onclick: () => this.selectMarker(key, true) }, "Show"),
-        m.set === "my-markers" && h("button", { type: "button", class: "btn small danger", onclick: async () => {
-          if (!confirm(`Delete "${m.name}"?`)) return;
-          try { await this.api.deleteMyMarker(m.id); this.selectMarker(null); await this.loadMarkers(); }
-          catch (e) { this.notify(`Not deleted: ${(e as Error).message}`); }
-        } }, "Delete")),
-      h("p", { class: "muted small" }, `${set?.name ?? m.set}${set ? ` · ${SOURCE_LABEL[set.source]}` : ""}`),
-    );
-  }
+  // ── nearest markers (in the marker panel) ──────────────────────
 
-  private toggleMarkersSheet() {
+  toggleMarkersSheet() {
     this.openSheet("markers");
     this.layout.sidebar = this.sheetKind === "markers" ? "expanded" : "collapsed";
     this.saveLayout();
   }
 
-  private searchResults(): HTMLElement[] {
-    const q = this.query.trim().toLowerCase();
-    if (!q) return [];
-    const hits: [string, Marker][] = [];
-    for (const [key, m] of this.markerIndex) {
-      if (m.realm === this.shownRealm && m.name.toLowerCase().includes(q)) hits.push([key, m]);
-      if (hits.length >= SEARCH_LIMIT) break;
-    }
-    if (!hits.length) return [h("p", { class: "muted empty" }, `No marker called “${this.query.trim()}” in ${REALMS[this.shownRealm].label}.`)];
-    return hits.map(([key, m]) => h("button", { type: "button", class: "result", "data-testid": "search-result",
-      onclick: () => { this.selectMarker(key, true); } },
-      h("img", { class: "cat-icon", src: iconUrl(m.category, false), alt: "" }), h("span", { class: "result-name" }, m.name),
-      this.found.has(key) ? h("span", { class: "tag" }, "found") : null));
-  }
-
-  private markersBody(): HTMLElement[] {
-    const results = h("div", { class: "results", "data-testid": "search-results" }, ...this.searchResults());
-    const input = h("input", { type: "search", placeholder: "Search markers", "aria-label": "Search markers", "data-testid": "marker-search",
-      value: this.query, enterkeyhint: "search", autocomplete: "off",
-      oninput: (e: Event) => { this.query = (e.target as HTMLInputElement).value; results.replaceChildren(...this.searchResults()); } });
-    input.value = this.query;
-    const search = h("div", { class: "search-bar", role: "search" }, input);
-    const data = this.markerData;
-    if (!data || !data.sets.length) {
-      return [search, h("p", { class: "muted empty", "data-testid": "markers-none" },
-        "No markers yet. On the PC: launcher → Maps → Import from game files, or add your own below."), ...this.addSection()];
-    }
-    const inRealm = data.markers.filter((m) => m.realm === this.shownRealm);
-    const count = new Map<string, [number, number]>();
-    for (const m of inRealm) {
-      const c = count.get(this.catKey(m)) ?? [0, 0];
-      c[0] += 1;
-      if (this.found.has(`${m.set}:${m.id}`)) c[1] += 1;
-      count.set(this.catKey(m), c);
-    }
-    const allKeys = [...count.keys()];
-    // categories of every set, gathered into the panel's groups; the game's own sets first in each group
-    const byGroup = new Map<string, { key: string; id: string; name: string }[]>();
-    const sets = [...data.sets].sort((a, b) => Number(b.source === "A") - Number(a.source === "A"));
-    for (const set of sets) {
-      for (const c of set.categories) {
-        const key = `${set.id}:${c.id}`;
-        if (!count.has(key)) continue;
-        const group = set.id === "my-markers" ? "My markers" : c.group || set.name;
-        byGroup.set(group, [...(byGroup.get(group) ?? []), { key, id: c.id, name: c.name }]);
-      }
-    }
-    const rank = (g: string) => (g === "My markers" ? 1000 : GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : 100);
-    const groupNames = [...byGroup.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-    const groups = groupNames.map((group) => this.categoryGroup(group, byGroup.get(group)!, count));
-    return [
-      search, results,
-      h("div", { class: "row" },
-        h("button", { type: "button", class: "btn small", "data-testid": "cats-all", onclick: () => this.setHidden(allKeys, false) }, "Show all"),
-        h("button", { type: "button", class: "btn small", "data-testid": "cats-none", onclick: () => this.setHidden(allKeys, true) }, "Hide all")),
-      toggle("Hide found markers", this.layout.hideFound, (v) => { this.layout.hideFound = v; this.saveLayout(); this.updateMarkers(); }, "set-hide-found"),
-      ...(groups.length ? groups : [h("p", { class: "muted empty" }, `No markers in ${REALMS[this.shownRealm].label} yet.`)]),
-      ...this.addSection(),
-    ];
-  }
-
-  /** A foldable panel section: header with all/none checkbox and counts, then its categories. */
-  private categoryGroup(group: string, cats: { key: string; id: string; name: string }[], count: Map<string, [number, number]>) {
-    const keys = cats.map((c) => c.key);
-    const shown = keys.filter((k) => !this.catHidden(k)).length;
-    const total = keys.reduce((n, k) => n + count.get(k)![0], 0);
-    const done = keys.reduce((n, k) => n + count.get(k)![1], 0);
-    const open = this.prefs.openGroups.includes(group);
-    const groupBox = h("input", { type: "checkbox", "aria-label": `Show ${group}`, "data-testid": `group-${group}`,
-      onchange: (e: Event) => this.setHidden(keys, !(e.target as HTMLInputElement).checked) });
-    groupBox.checked = shown === keys.length;
-    groupBox.indeterminate = shown > 0 && shown < keys.length;
-    const fold = () => {
-      const groups = new Set(this.prefs.openGroups);
-      if (groups.has(group)) groups.delete(group); else groups.add(group);
-      this.prefs.openGroups = [...groups];
-      savePrefs(this.prefs);
-      this.renderSheet();
-    };
-    const rows = open ? cats.map((c) => {
-      const [n, f] = count.get(c.key)!;
-      const box = h("input", { type: "checkbox", "data-testid": `cat-${c.key}`,
-        onchange: (e: Event) => this.setHidden([c.key], !(e.target as HTMLInputElement).checked) });
-      box.checked = !this.catHidden(c.key);
-      return h("label", { class: "cat-row" }, box, h("img", { class: "cat-icon", src: iconUrl(c.id, false), alt: "" }),
-        h("span", { class: "cat-name" }, c.name), h("span", { class: "muted", title: `${f} of ${n} found` }, `${f}/${n}`));
-    }) : [];
-    return h("div", { class: `cat-group${open ? " open" : ""}`, "data-testid": "cat-group", "data-group": group },
-      h("div", { class: "group-head" }, groupBox,
-        h("button", { type: "button", class: "group-fold", "aria-expanded": String(open), "data-testid": `fold-${group}`, onclick: fold },
-          h("span", { class: "chevron", "aria-hidden": "true" }, "›"),
-          h("span", { class: "group-name" }, group),
-          h("span", { class: "count", title: `${cats.length} categories · ${done} of ${total} found`,
-            "aria-label": `${cats.length} categories, ${done} of ${total} found` }, `${done}/${total}`))),
-      ...rows);
-  }
-
-  private addSection(): HTMLElement[] {
-    const here = this.playerLatLng();
-    return [
-      h("h3", {}, "Add a marker"),
-      h("div", { class: "row" },
-        h("button", { type: "button", class: "btn small primary", "data-testid": "add-here", disabled: !here,
-          onclick: () => { const ll = this.playerLatLng(); if (ll) void this.addMarker(ll[1], ll[0]); } }, "At my position"),
-        h("button", { type: "button", class: "btn small", "data-testid": "add-by-tap",
-          onclick: () => { this.addingByTap = true; this.closeSheet(); this.render(); } }, "Tap on the map")),
-      h("p", { class: "muted" }, "Your markers and found ticks are saved on the PC and show on every device."),
-    ];
-  }
-
   // ── calibration (per map image) ────────────────────────────────
 
-  private startCalibration() {
+  startCalibration() {
     const realm = this.shownRealm;
     const map = this.activeMap(realm);
     if (!map || map.fixed) return;
@@ -547,11 +721,14 @@ class App {
     this.render();
   }
 
-  private async onMapTap(ll: LatLng, markerKey: string | null = null) {
+  async onMapTap(ll: LatLng, markerKey: string | null = null) {
     if (this.addingByTap) {
       this.addingByTap = false;
       this.render();
-      await this.addMarker(ll[1], ll[0]);
+      if (this.editing) {                       // "Pick on the map" in the form: the marker moves there
+        Object.assign(this.editing, { realm: this.shownRealm, x: ll[1], z: ll[0] });
+        renderCard(this, true);
+      } else this.addMarker(ll[1], ll[0]);
       return;
     }
     const realm = this.calibrating;
@@ -574,14 +751,14 @@ class App {
     this.render();
   }
 
-  private async mapAction(action: () => Promise<unknown>) {
+  async mapAction(action: () => Promise<unknown>) {
     try { await action(); } catch (e) { this.notify(`Failed: ${(e as Error).message}`); }
     await this.loadMaps();
   }
 
   // ── profiles ───────────────────────────────────────────────────
 
-  private async loadProfiles(applyStartup: boolean) {
+  async loadProfiles(applyStartup: boolean) {
     try {
       const data = await this.api.profiles();
       this.profiles = data.profiles;
@@ -598,13 +775,14 @@ class App {
     if (this.sheetKind === "profiles") this.renderSheet();
   }
 
-  private applyProfile(p: Profile, announce = true) {
+  applyProfile(p: Profile, announce = true) {
     this.layout = {
       follow: p.follow, rotateWithHeading: p.rotateWithHeading, markerSize: p.markerSize,
       toolbarSide: p.toolbarSide, theme: p.theme, sidebar: p.sidebar, hide: [...p.hide], show: [...(p.show ?? [])], hideFound: p.hideFound,
       mapOpacity: p.mapOpacity ?? 1, markerOpacity: p.markerOpacity ?? 1, gameIcons: p.gameIcons ?? true,
     };
     this.prefs.lastProfileId = p.id;
+    this.prefs.recentProfiles = [p.id, ...this.prefs.recentProfiles.filter((id) => id !== p.id)].slice(0, QUICK_PROFILES);
     this.saveLayout();
     this.applyLayoutChrome();
     this.bridge.setFollow(p.follow);
@@ -621,12 +799,12 @@ class App {
     if (this.sheetKind) this.renderSheet();
   }
 
-  private currentLayoutProfile(name: string) {
+  currentLayoutProfile(name: string) {
     const view = this.bridge.getView();
     return { name, ...this.layout, zoom: Math.round(view.zoom * 100) / 100, types: [] };
   }
 
-  private async profileAction(action: () => Promise<unknown>, done?: string) {
+  async profileAction(action: () => Promise<unknown>, done?: string) {
     try {
       await action();
       if (done) this.notify(done);
@@ -636,14 +814,23 @@ class App {
     await this.loadProfiles(false);
   }
 
-  private exportProfiles() {
+  exportProfiles() {
     const data = JSON.stringify({ app: "companion-map", version: 2, profiles: this.profiles }, null, 2);
     const a = h("a", { href: URL.createObjectURL(new Blob([data], { type: "application/json" })), download: "companionmap-profiles.json" });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  private async importProfiles(file: File) {
+  async restoreBackup(file: File) {
+    try {
+      const { added } = await this.api.restoreBackup(JSON.parse(await file.text()));
+      this.notify(`Restored: ${added.found} found ticks, ${added.myMarkers} markers, ${added.profiles} profiles, ${added.rules} rules`);
+    } catch (e) {
+      this.notify(e instanceof ApiError ? `Not restored: ${e.message}` : "Not a backup file");
+    }
+  }
+
+  async importProfiles(file: File) {
     let list: Partial<Profile>[] = [];
     try {
       const doc = JSON.parse(await file.text()) as { profiles?: Partial<Profile>[] } | Partial<Profile>[];
@@ -663,7 +850,7 @@ class App {
 
   // ── sheets ─────────────────────────────────────────────────────
 
-  private openSheet(kind: SheetKind) {
+  openSheet(kind: SheetKind) {
     const opening = this.sheetKind !== kind;
     if (opening && !this.sheetKind) this.sheetOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.sheetKind = opening ? kind : null;
@@ -673,205 +860,57 @@ class App {
     else this.returnFocus();
   }
 
-  private closeSheet() {
+  closeSheet() {
     const hadFocus = this.sheet.contains(document.activeElement);
     this.sheetKind = null;
     this.renderSheet();
     if (hadFocus) this.returnFocus();
   }
 
-  private returnFocus() {
+  returnFocus() {
     const back = this.sheetOpener;
     this.sheetOpener = null;
     if (back && back.isConnected) back.focus({ preventScroll: true });
   }
 
-  private renderSheet() {
+  renderSheet() {
     const kind = this.sheetKind;
     const typing = kind === "markers" && document.activeElement?.getAttribute("data-testid") === "marker-search";
     if (typing) return;
     // the same sheet again (a category ticked, a setting changed): keep where the list was scrolled to
     const same = !!kind && this.sheet.dataset.testid === `sheet-${kind}`;
     const scrolled = same ? this.sheet.querySelector<HTMLElement>(".sheet-body")?.scrollTop ?? 0 : 0;
-    this.sheet.hidden = !kind;
     this.sheet.dataset.testid = kind ? `sheet-${kind}` : "";
-    if (!kind) { this.sheet.replaceChildren(); return; }
+    this.sheet.dataset.stop = this.prefs.sheetStop;
+    if (!kind) {                             // it slides away, then it is gone
+      const gone = () => { if (!this.sheetKind) { this.sheet.hidden = true; this.sheet.classList.remove("closing"); this.sheet.replaceChildren(); } };
+      if (this.sheet.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches) gone();
+      else { this.sheet.classList.add("closing"); window.setTimeout(gone, 170); }
+      return;
+    }
+    this.sheet.classList.remove("closing");
+    this.sheet.hidden = false;
     // a re-render (live updates) replaces every element: keep the keyboard focus on the same control
     const focused = this.sheet.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
     const again = focused?.id ? `#${CSS.escape(focused.id)}`
       : focused?.dataset.testid ? `[data-testid="${CSS.escape(focused.dataset.testid)}"]` : "#sheet-title";
     const title = kind === "profiles" ? "Layout profiles" : kind === "markers" ? "Markers" : "Settings";
     this.sheet.replaceChildren(
+      h("button", { type: "button", class: "sheet-grip", "data-testid": "sheet-grip", "aria-label": "Make the panel taller or shorter" }),
       h("div", { class: "sheet-head" }, h("h2", { id: "sheet-title", tabindex: "-1" }, title),
         h("button", { type: "button", class: "tb", "aria-label": `Close ${title.toLowerCase()}`, title: "Close", "data-testid": "sheet-close", onclick: () => {
           if (this.sheetKind === "markers") { this.layout.sidebar = "collapsed"; this.saveLayout(); }
           this.closeSheet(); this.render();
         } }, icon("close"))),
-      h("div", { class: "sheet-body" }, ...(kind === "profiles" ? this.profilesBody() : kind === "markers" ? this.markersBody() : this.settingsBody())),
+      h("div", { class: "sheet-body" }, ...(kind === "profiles" ? profilesBody(this) : kind === "markers" ? markersBody(this) : settingsBody(this))),
     );
     if (scrolled) this.sheet.querySelector<HTMLElement>(".sheet-body")!.scrollTop = scrolled;
     if (focused) (this.sheet.querySelector<HTMLElement>(again) ?? this.sheet.querySelector<HTMLElement>("#sheet-title"))?.focus({ preventScroll: true });
   }
 
-  private profilesBody(): HTMLElement[] {
-    const nameInput = h("input", { type: "text", placeholder: "Name, e.g. Ore run", "data-testid": "profile-name", maxlength: "60" });
-    const save = () => {
-      const name = nameInput.value.trim();
-      if (!name) { nameInput.focus(); return; }
-      void this.profileAction(async () => {
-        const p = await this.api.createProfile(this.currentLayoutProfile(name));
-        this.prefs.lastProfileId = p.id;
-        savePrefs(this.prefs);
-      }, `Saved "${name}"`);
-    };
-    const fileInput = h("input", { type: "file", accept: "application/json,.json", hidden: true,
-      onchange: () => { const f = fileInput.files?.[0]; if (f) void this.importProfiles(f); fileInput.value = ""; } });
-
-    const rows = this.profiles.map((p) => {
-      const isDefault = p.id === this.defaultProfileId;
-      return h("div", { class: `profile${p.id === this.prefs.lastProfileId ? " active" : ""}`, "data-testid": "profile-row", "data-id": p.id },
-        h("div", { class: "name" }, h("span", {}, p.name), isDefault && h("span", { class: "tag" }, "Default")),
-        h("div", { class: "row" },
-          h("button", { type: "button", class: "btn small primary", "data-testid": "profile-apply", onclick: () => this.applyProfile(p) }, "Apply"),
-          h("button", { type: "button", class: "btn small", onclick: () => {
-            const name = prompt("Rename profile", p.name)?.trim();
-            if (name) void this.profileAction(() => this.api.updateProfile(p.id, { name }));
-          } }, "Rename"),
-          h("button", { type: "button", class: "btn small", onclick: () => {
-            const { id: _i, createdAt: _c, updatedAt: _u, ...copy } = p;
-            void this.profileAction(() => this.api.createProfile({ ...copy, name: `${p.name} copy`.slice(0, 60) }));
-          } }, "Duplicate"),
-          h("button", { type: "button", class: "btn small", onclick: () =>
-            void this.profileAction(() => this.api.setDefaultProfile(isDefault ? null : p.id)) }, isDefault ? "Unset default" : "Set default"),
-          h("button", { type: "button", class: "btn small danger", onclick: () => {
-            if (confirm(`Delete "${p.name}"?`)) void this.profileAction(() => this.api.deleteProfile(p.id));
-          } }, "Delete")));
-    });
-
-    return [
-      h("h3", {}, "Save current layout"),
-      h("div", { class: "row" }, nameInput, h("button", { type: "button", class: "btn primary", "data-testid": "profile-save", onclick: save }, "Save")),
-      h("p", { class: "muted" }, "Saves zoom, follow, rotation, toolbar side, marker size, theme, opacity and the marker filters. Profiles live on the PC, so every device sees them."),
-      h("h3", {}, `Profiles (${this.profiles.length})`),
-      ...(rows.length ? rows : [h("p", { class: "muted empty" }, "No profiles yet. Save the current layout above to make one.")]),
-      h("h3", {}, "Backup"),
-      h("div", { class: "row" },
-        h("button", { type: "button", class: "btn", onclick: () => this.exportProfiles() }, "Export JSON"),
-        h("button", { type: "button", class: "btn", onclick: () => fileInput.click() }, "Import JSON"), fileInput),
-    ];
-  }
-
-  private mapSection(): HTMLElement[] {
-    const realm = this.shownRealm;
-    const label = REALMS[realm].label;
-    const map = this.activeMap(realm);
-    const choices = (this.maps?.maps ?? []).filter((m) => m.realm === realm);
-    const out: HTMLElement[] = [h("h3", {}, `Map · ${label}`)];
-    if (!map) {
-      out.push(h("p", { class: "muted empty", "data-testid": "map-none" },
-        `No map imported for ${label}. On the PC: launcher → Maps → Import image. Until then the grid shows the live position.`));
-      return out;
-    }
-    if (choices.length > 1) {
-      out.push(h("div", { class: "field" }, h("span", {}, "Shown map"),
-        segmented("Shown map", choices.map((m) => [m.id, m.name] as [string, string]), map.id,
-          (id) => void this.mapAction(() => this.api.setActiveMap(realm, id)))));
-    }
-    out.push(h("p", { class: "muted" }, `${map.name} · ${map.image[0]} × ${map.image[1]} px · source: ${SOURCE_LABEL[map.source]}`));
-    if (map.fixed) {
-      out.push(h("p", { class: "muted", "data-testid": "map-fixed" }, "Placed exactly from the game's own map data: no calibration needed."));
-      return out;
-    }
-    const n = map.calibration.length;
-    out.push(h("p", { class: "muted", "data-testid": "map-cal-summary" },
-      n < 2 ? `Not calibrated yet (${n} of at least 2 points; 3 or more show the error).`
-        : `${n} points · error ${map.errorM!.toFixed(1)} m`));
-    map.calibration.forEach((p, i) => {
-      const r = map.residuals[i];
-      out.push(h("div", { class: "row cal-point", "data-testid": "cal-point" },
-        h("span", { class: "muted" }, `#${i + 1} x ${p.game[0].toFixed(0)}, z ${p.game[1].toFixed(0)}${r != null ? ` · off by ${r.toFixed(1)} m` : ""}`),
-        h("button", { type: "button", class: "btn small danger", "aria-label": `Delete point ${i + 1}`,
-          onclick: () => void this.mapAction(() => this.api.deleteMapPoint(map.id, i)) }, "Delete")));
-    });
-    out.push(h("div", { class: "row" },
-      h("button", { type: "button", class: "btn small primary", "data-testid": "cal-add", onclick: () => this.startCalibration() }, "Add point"),
-      n > 0 && h("button", { type: "button", class: "btn small danger", onclick: () => {
-        if (confirm("Remove all calibration points of this map?")) void this.mapAction(() => this.api.resetMapCalibration(map.id));
-      } }, "Reset")));
-    out.push(h("p", { class: "muted" }, "Stand at a landmark in game, tap Add point, then tap that landmark on the map. Spread the points out."));
-    return out;
-  }
-
-  private settingsBody(): HTMLElement[] {
-    const set = <K extends keyof Layout>(key: K, value: Layout[K]) => {
-      this.layout[key] = value;
-      this.saveLayout();
-      this.applyLayoutChrome();
-      if (key === "rotateWithHeading") this.bridge.setBearingDeg(value && this.pos?.heading != null ? this.pos.heading : 0);
-      if (key === "follow") this.setFollow(value as boolean);
-      if (key === "markerSize") this.updatePlayer();
-      if (key === "gameIcons") setGameIcons(value as boolean);
-      this.renderSheet();
-      this.render();
-    };
-    const realmMode = (v: RealmMode) => { this.prefs.realmMode = v; savePrefs(this.prefs); this.renderSheet(); };
-    const opacity = (key: "mapOpacity" | "markerOpacity", v: number) => {   // live while dragging: no re-render
-      this.layout[key] = v;
-      this.saveLayout();
-      this.bridge.setOpacity(this.layout.mapOpacity, this.layout.markerOpacity);
-    };
-    const secure = window.isSecureContext;
-    const credits = (this.maps?.maps ?? []).map((m) =>
-      h("li", {}, `${m.name} (${REALMS[m.realm].label}): ${SOURCE_LABEL[m.source]}${m.licence ? ` – ${m.licence}` : ""}`));
-
-    return [
-      h("h3", {}, "Map"),
-      toggle("Follow player", this.layout.follow, (v) => set("follow", v), "set-follow"),
-      toggle("Rotate map with heading", this.layout.rotateWithHeading, (v) => set("rotateWithHeading", v), "set-rotate"),
-      h("div", { class: "field" }, h("span", {}, "Player marker size"),
-        segmented("Marker size", [["small", "Small"], ["medium", "Medium"], ["large", "Large"]] as const, this.layout.markerSize, (v) => set("markerSize", v))),
-      h("div", { class: "field" }, h("span", {}, "Switch realm when the player does"),
-        segmented("Realm switching", [["auto", "Auto"], ["ask", "Ask"], ["manual", "Manual"]] as const, this.prefs.realmMode, realmMode)),
-      h("h3", {}, "Opacity"),
-      slider("Map", this.layout.mapOpacity, 0.2, 1, (v) => opacity("mapOpacity", v), "set-map-opacity"),
-      slider("Markers", this.layout.markerOpacity, 0.2, 1, (v) => opacity("markerOpacity", v), "set-marker-opacity"),
-      h("h3", {}, "Markers"),
-      toggle("Game icons", this.layout.gameIcons, (v) => set("gameIcons", v), "set-game-icons"),
-      h("p", { class: "muted" }, "The game's own map icons, taken from your game files by Import from game files. "
-        + "Off: simple icons."),
-      ...this.mapSection(),
-      h("h3", {}, "Layout"),
-      h("div", { class: "field" }, h("span", {}, "Toolbar"),
-        segmented("Toolbar side", [["bottom", "Bottom"], ["left", "Left"], ["right", "Right"]] as const, this.layout.toolbarSide, (v) => set("toolbarSide", v))),
-      h("div", { class: "field" }, h("span", {}, "Theme"),
-        segmented("Theme", [["auto", "Auto"], ["dark", "Dark"], ["light", "Light"]] as const, this.layout.theme, (v) => set("theme", v))),
-      h("h3", {}, "Screen"),
-      h("p", { class: "muted" }, secure ? "The screen is kept awake while this page is open."
-        : "On the standard connection the screen can't be kept awake. Use the secure connection, or turn off auto-lock "
-          + "in the device settings (iPad: Display & Brightness → Auto-Lock → Never)."),
-      location.protocol === "https:" ? null
-        : h("a", { class: "btn small", href: "/cdlm/setup", "data-testid": "https-setup" }, "Set up the secure connection (HTTPS)"),
-      h("h3", {}, "About"),
-      h("p", { class: "muted credit" }, "Runs entirely on your PC and network: no online map service. "
-        + "Live position read from the game's memory, read-only. Map with OpenLayers (BSD-2-Clause)."),
-      credits.length ? h("ul", { class: "muted credit", "data-testid": "map-credits" }, ...credits) : null,
-      h("div", { class: "row" }, h("button", { type: "button", class: "btn small", onclick: () => {
-        this.layout = { ...DEFAULT_LAYOUT };
-        this.saveLayout();
-        this.applyLayoutChrome();
-        this.bridge.setFollow(this.layout.follow);
-        this.bridge.setOpacity(1, 1);
-        setGameIcons(this.layout.gameIcons);
-        this.bridge.setBearingDeg(0);
-        this.renderSheet();
-        this.render();
-      } }, "Reset layout")),
-    ].filter((el): el is HTMLElement => !!el);
-  }
-
   // ── render ─────────────────────────────────────────────────────
 
-  private pillState(): [string, string] {
+  pillState(): [string, string] {
     if (!this.wsOpen) return ["red", "Offline – reconnecting"];
     switch (this.engine.status) {
       case "waiting_for_game": return ["amber", "Waiting for the game"];
@@ -883,8 +922,14 @@ class App {
     return ["green", `Live · ${REALMS[this.pos.realm].label}`];
   }
 
-  private render() {
+  render() {
     const [state, text] = this.pillState();
+    // called on every live message (30 a second): touch the page only when something it shows changed
+    const offline = !this.wsOpen && performance.now() - this.closedAt > OFFLINE_MS;
+    const now = [state, text, offline, this.layout.follow, !!this.pos, this.sheetKind, this.shownRealm, this.engine.status,
+      !!this.maps && !this.activeMap(this.shownRealm), this.calibrating, this.addingByTap, this.askRealm].join("|");
+    if (now === this.renderKey) return;
+    this.renderKey = now;
     this.pill.dataset.state = state;
     this.pill.title = text;
     this.pill.firstElementChild!.textContent = text;
@@ -899,7 +944,13 @@ class App {
     b.settings.setAttribute("aria-pressed", String(this.sheetKind === "settings"));
     b.realm.querySelector(".badge")!.textContent = REALMS[this.shownRealm].label;
 
+    document.body.toggleAttribute("data-offline", offline);          // the map goes grey: what it shows may be old
     const chips: HTMLElement[] = [];
+    if (offline) {
+      chips.push(h("div", { class: "chip bad", "data-testid": "chip-offline" },
+        "The PC is not reachable. Is Companion Map running there, and is this device on the same Wi-Fi?",
+        h("button", { type: "button", "data-testid": "offline-retry", onclick: () => { this.live.kick(); void this.loadMaps(); } }, "Try again")));
+    }
     if (this.engine.status === "aob_not_found") {
       chips.push(h("div", { class: "chip warn", "data-testid": "chip-unsupported" },
         "The game was updated: no live position until the app is updated. Maps and markers still work."));
@@ -914,7 +965,7 @@ class App {
         h("button", { type: "button", onclick: () => { this.calibrating = null; this.render(); } }, "Cancel")));
     }
     if (this.addingByTap) {
-      chips.push(h("div", { class: "chip warn", "data-testid": "chip-adding" }, "Tap where the new marker goes",
+      chips.push(h("div", { class: "chip warn", "data-testid": "chip-adding" }, "Tap where the marker goes",
         h("button", { type: "button", onclick: () => { this.addingByTap = false; this.render(); } }, "Cancel")));
     }
     if (this.askRealm) {
@@ -929,11 +980,14 @@ class App {
     }
   }
 
-  private debugState() {
+  debugState() {
     return {
       wsOpen: this.wsOpen, engine: this.engine, follow: this.layout.follow, layout: this.layout,
       shownRealm: this.shownRealm, realmPinned: this.realmPinned, mapId: this.bridge.getView().mapId, pos: this.pos,
       stale: this.isStale(), calibrating: this.calibrating, profiles: this.profiles.length,
+      target: this.target, point: this.point, roads: !!this.roads, way: this.way?.length ?? 0,
+      tour: this.tour && { index: this.tour.index, keys: this.tour.keys }, hud: this.hud, speed: this.speed,
+      trail: Object.fromEntries(Object.entries(this.trail).map(([realm, points]) => [realm, points.length])),
       mapsLoaded: this.maps !== null,
       markers: { total: this.markerIndex.size, shown: [...this.markerIndex.values()].filter((m) => this.isShown(m)).length,
         found: this.found.size, selected: this.selected },

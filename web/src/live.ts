@@ -12,8 +12,12 @@ export interface StatusMsg { type: "status"; status: string; message: string }
 export interface ProfileChangedMsg { type: "profile_changed"; id: string | null; action: string }
 export interface MapChangedMsg { type: "map_changed"; id: string | null; action: string }
 export interface MarkersChangedMsg { type: "markers_changed" }
-export interface ProgressChangedMsg { type: "progress_changed"; key: string; found: boolean }
-export type ServerMsg = PositionMsg | StatusMsg | ProfileChangedMsg | MapChangedMsg | MarkersChangedMsg | ProgressChangedMsg;
+/** `until`: the tick ends by itself then (epoch seconds); `auto` + `name`: the PC ticked it because the player got there. */
+export interface ProgressChangedMsg { type: "progress_changed"; key: string; found: boolean; until?: number | null; auto?: boolean; name?: string }
+export interface RulesChangedMsg { type: "rules_changed" }
+/** The player's path in this session per realm, sent on connect and when it is cleared; null marks a gap. */
+export interface TrailMsg { type: "trail"; points: Partial<Record<Realm, ([number, number] | null)[]>> }
+export type ServerMsg = PositionMsg | StatusMsg | ProfileChangedMsg | MapChangedMsg | MarkersChangedMsg | ProgressChangedMsg | RulesChangedMsg | TrailMsg;
 
 export interface LiveHandlers {
   open(): void;

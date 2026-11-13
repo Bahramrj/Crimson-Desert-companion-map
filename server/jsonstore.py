@@ -13,9 +13,11 @@ def read_json(path, default=None):
         return default
 
 
-def write_json(path, data):
+def write_json(path, data, indent=2):
+    """indent=None writes compact JSON (large files that nobody reads by hand)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    text = json.dumps(data, indent=indent) if indent else json.dumps(data, separators=(",", ":"))
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)

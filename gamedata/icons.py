@@ -138,10 +138,20 @@ ICONS = {
 }
 
 
+UI_GROUP = "0012"            # the UI textures and their atlas descriptions (also the world-map layers)
+
+
+def _find(archive, pattern):
+    """Entries matching `pattern` in the UI group; only if it has none, in every group (a patch may move
+    them). Looking in every group first would index all two million files of the install."""
+    found = archive.find(pattern, [UI_GROUP]) if UI_GROUP in archive.groups() else []
+    return found or archive.find(pattern)
+
+
 def atlas_rects(archive):
     """{icon name (lower case): (texture path, (x, y, w, h))} from every icon atlas description."""
     rects = {}
-    for entry in archive.find("ui/xml/texture/cd_icon_*.xml"):
+    for entry in _find(archive, "ui/xml/texture/cd_icon_*.xml"):
         if not ATLAS_XML.match(entry.path.lower()):
             continue
         text = archive.read(entry).decode("utf-8", "replace")
@@ -175,7 +185,7 @@ def extract(archive, wanted=ICONS):
     Unreadable atlases are logged and skipped; with none at all the sheet is None."""
     rects = atlas_rects(archive)
     textures, cells, missing = {}, {}, []
-    entries = {e.path.lower(): e for e in archive.find("ui/texture/cd_icon_*.dds")}
+    entries = {e.path.lower(): e for e in _find(archive, "ui/texture/cd_icon_*.dds")}
     for category, names in wanted.items():
         found = next((rects[n.lower()] for n in names if n.lower() in rects), None)
         if found is None:

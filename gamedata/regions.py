@@ -120,6 +120,20 @@ def border_layer(bitmap, size, world=geo.WORLD):
     return edges.transform((size, size), Image.Transform.EXTENT, box, Image.BICUBIC)
 
 
+def province_lookup(archive, places):
+    """A function (x, z) -> province name or None, for tagging markers with their province."""
+    bitmap = load(archive)
+    if bitmap is None:
+        return lambda x, z: None
+    names = province_names(bitmap, places)
+    px, size = bitmap.load(), bitmap.width
+
+    def lookup(x, z):
+        u, v = pixel(x, z, size)
+        return names.get(px[u, v]) if 0 <= u < size and 0 <= v < size else None
+    return lookup
+
+
 def province_labels(archive, places):
     """Province label markers for the "Regions" category: [(name, x, z)]."""
     bitmap = load(archive)

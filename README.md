@@ -11,6 +11,8 @@ your phone or tablet over your local Wi-Fi.
 A live map for **Crimson Desert** on your tablet or phone, next to the game. The app reads where you
 are in the game, and the arrow on the map moves and turns with you as you play, with places, shops,
 Abyss gates and cressets, ore, plants, crafting stations, chests, animals and more as markers.
+It lists what is nearest to you, shows the way to a marker along the roads, and ticks off what you
+have found.
 With the **Charting the Unknown** DLC installed, its islands, sea caves, sunken ruins and sea
 resources are on the map too.
 
@@ -30,7 +32,7 @@ doesn't use the internet, online map sites, accounts or telemetry.
   **Charting the Unknown** DLC (its islands, sunken ruins, sea caves and sea resources show when it is installed).
   Other versions may need an app update, see *Troubleshooting*.
 - A tablet, phone or second computer with a web browser, **on the same Wi-Fi or network as the PC**.
-- About 40 MB of disk space for the maps (about 70 MB at high resolution).
+- About 120 MB of disk space for the maps and markers (more at high resolution).
 
 ## Getting started
 
@@ -43,59 +45,83 @@ doesn't use the internet, online map sites, accounts or telemetry.
    - **Build it from source**: see [Building from source](#building-from-source).
 2. **Start `CompanionMap.exe`.** Windows asks for administrator rights: the app needs them
    to read the game's memory. It reads only; it never writes player data or changes the game.
-3. **Import the map** (once, and again after a game update). Go to the **Maps** tab and click
-   **Import from game files**. It takes about 4 minutes (high resolution: about 8).
+3. **Import the map** (once, and again after a game update). Go to the **Maps** page and click
+   **Import from game files**. It takes about a minute (a few minutes on an older PC); the app
+   shows the time left, and you can cancel.
    - If the game is not in a Steam library, click **Game folder…** and pick the Crimson Desert folder.
    - The map and markers are made from your own install and stay on this PC.
+   - Marker names can be in another language of the game: pick it next to the import button.
    - The line under the status boxes shows **Map and game version synced** in green while the map
      files match the installed game. After a game update it shows both versions and an
      **Update map files** link.
-4. **Connect your device over your local network.** On the **Connect** tab, scan the QR code with
+4. **Connect your device over your local network.** On the **Connect** page, scan the QR code with
    the device's camera, or type the address shown into its browser.
    - On iPhone or iPad, add the page to the home screen (Safari: Share → Add to Home Screen) for a
      full-screen app.
    - Many devices can also open it by name: `http://companionmap.local:8788`.
 5. **Play.** The arrow appears as soon as you are in the game world.
 
+On the first start, a **Get started** card on the Connect page walks you through steps 3 and 4.
+
 If the device cannot connect:
 
 - Make sure both are **on the same local network**.
-- Switched Wi-Fi, or turned a VPN on or off? Click **Refresh network** on the Connect tab (the app also
+- Switched Wi-Fi, or turned a VPN on or off? Click **Refresh network** on the Connect page (the app also
   notices by itself within a few seconds). VPN addresses are never offered; with a VPN on, allow
   *local network access* in the VPN app if devices can't connect.
 - Click **Settings → Allow in Windows Firewall**.
-- If Windows treats your home Wi-Fi as a *Public* network, the Connect tab says so. Set the network
+- If Windows treats your home Wi-Fi as a *Public* network, the Connect page says so. Set the network
   to *Private* in Windows network settings.
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![A marker card with the game's own description](docs/screenshots/map-marker.jpg) | ![The markers panel: groups and categories you can switch on and off](docs/screenshots/markers-panel.jpg) |
-| Tap a marker for its name, description and distance, and mark it as found. | Markers in foldable groups; switch categories on and off and search by name. Here: the DLC's golden coral and sea fan coral. |
+| ![A marker card with the game's own description](docs/screenshots/map-marker.jpg) | ![The markers panel with the nearest markers](docs/screenshots/markers-panel.jpg) |
+| Tap a marker for its name, description, distance and height, mark it as found or navigate to it. | The markers panel: what is nearest to you, search, categories in foldable groups and your progress. |
+| ![A route along the roads to Hernand East Gate](docs/screenshots/map-route.jpg) | ![The Pywel map in night colours](docs/screenshots/map-night.jpg) |
+| Navigate: the way along the roads, with the distance and whether the goal is above or below you. | Night colours for playing in the dark. |
 | ![Samora Island from the Charting the Unknown DLC, with its coasts, caves, ruins and trader](docs/screenshots/map-islands.jpg) | ![The Abyss: floating islands and the bridges between them](docs/screenshots/abyss.jpg) |
 | The DLC's islands, here Samora, with the game's own place names. | The Abyss, with its islands and bridge routes. |
-| ![The Windows app's Connect tab with a QR code](docs/screenshots/app-connect.png) | ![The Windows app's Maps tab](docs/screenshots/app-maps.png) |
-| The Windows app: scan the code with your tablet or phone. | Import the map from your own game files in a few minutes. |
+| ![The Windows app's Connect page with a QR code](docs/screenshots/app-connect.png) | ![The Windows app's Maps page](docs/screenshots/app-maps.png) |
+| The Windows app: scan the code with your tablet or phone. | Import the map from your own game files in about a minute. |
 | <img src="docs/screenshots/phone.jpg" alt="The map on a phone" width="49%"> <img src="docs/screenshots/phone-settings.jpg" alt="The settings on a phone" width="49%"> | |
 | Works on phones too: follow or explore freely, zoom, opacity and more. | |
 
-*Screenshots show the map made from the game's own map data; the PC address is an example.*
+*Screenshots show the map made from the game's own map data, with the simple marker icons. The
+Windows app is shown in its demo mode; the PC address is an example.*
 
 ## On the map
 
 - **Follow / Free**: follow the player live, or explore freely. Dragging the map switches to Free.
-- **+ / − and the target button**: zoom, and jump back to your position once.
+  While you follow, the buttons fade out; tap the map to bring them back.
+- **+ / − and the target button**: zoom, and jump back to your position once. The **compass**
+  appears when the map is turned; tap it for north up.
 - **Realm button**: switch between Pywel and the Abyss. By default the map follows you between
   realms; a realm you pick by hand stays until you tap Follow.
-- **Markers**: show or hide categories by group, search, mark markers as found (shared by every
-  device), and add your own markers. You can switch the province names off here. Mining, Gathering,
-  Crafting, Treasures and Animals (about 18 000 markers, about 39 000 with the DLC) start switched
-  off; tick the ones you want.
-- **Settings**: rotate the map with your heading, the arrow size, map and marker opacity,
-  **Game icons** (the game's own map icons for the markers, taken from your game files; switch it
-  off for simple icons), the theme and the toolbar position.
-- **Profiles**: save a layout (zoom, filters, opacity, …) and apply it on any device.
+- **Markers**: show or hide categories by group, search markers and categories, mark markers as
+  found (shared by every device), and add your own markers with a kind and a colour. Mining,
+  Gathering, Crafting, Treasures and Animals (about 18 000 markers, about 39 000 with the DLC) start
+  switched off; tick the ones you want.
+  - **Nearest to you** lists the closest markers that are switched on, with distance and direction.
+  - **Progress**: how much you have found, per category and per province.
+  - **Route through the markers on screen** plans a short round through them, for example an ore run.
+- **Marker card** (tap a marker): name, the game's description, distance, and how far above or
+  below you it is.
+  - **Navigate** draws the way along the roads and keeps the distance on screen.
+  - **For all "…"** sets a rule for the whole category: tick a marker by itself when you stand at it,
+    and bring it back after a number of hours (for ore and plants that grow back).
+- **Long press on the map**: navigate to any spot, measure between two spots, or add a marker there.
+- **Settings**:
+  - **Minimal view**: only the map, your heading up, zooming out when you ride or sail.
+  - **Night colours** for the Pywel map, **Show where I have been** (your trail), and
+    **Navigate along roads**.
+  - Rotate the map with your heading, the arrow size, map and marker opacity, **Game icons** (the
+    game's own map icons, taken from your game files; switch it off for simple icons), the theme
+    and the toolbar position.
+  - **Backup**: save your found markers, own markers, rules and profiles to a file, and restore them.
+- **Profiles**: save a layout (zoom, filters, opacity, …) and apply it on any device. A long press
+  on the Profiles button lists them for a quick switch.
 
 ## Secure connection (HTTPS, optional)
 
@@ -103,7 +129,7 @@ The standard `http://` address always works. HTTPS adds one thing: the device ca
 awake while the map is open. To use it:
 
 1. In the app: **Settings → Also serve HTTPS**, then **Apply**.
-2. On the **Connect** tab, choose **Secure connection (HTTPS)**.
+2. On the **Connect** page, choose **Secure connection (HTTPS)**.
 3. Open the setup page on the device: scan **Show the setup code**, or open
    `http://<PC address>:8788/cdlm/setup`. Then follow the steps to install and trust this PC's
    certificate.
@@ -127,16 +153,17 @@ so it cannot be used for any website. You can remove it from the device at any t
 | --- | --- |
 | Waiting for Crimson Desert | Start the game and load into the world. |
 | This game version is not supported yet | The game was updated and the live position can't be read until the app is updated. Maps and markers still work. |
-| Game version and map files differ (amber line under the status boxes) | Click **Update map files**, or **Import from game files** in the Maps tab. |
-| No map yet (on the device) | Import the map on the PC (Maps tab). |
+| Game version and map files differ (amber line under the status boxes) | Click **Update map files**, or **Import from game files** on the Maps page. |
+| No map yet (on the device) | Import the map on the PC (Maps page). |
 | Device can't connect | See *Getting started*, step 4. |
+| No night colours, no route along the roads | Run **Import from game files** once with this version: both are made during the import. |
 
-**Log → Save diagnostics…** writes a text file with the app's state and recent log. It contains
+**Activity → Save diagnostics…** writes a text file with the app's state and recent log. It contains
 no personal data beyond your PC's network addresses and folder paths. Attach it to bug reports.
 
 ## Privacy and data
 
-- Map data, markers, found-progress, profiles and settings are kept in
+- Map data, markers, found-progress, your trail, profiles and settings are kept in
   `%LOCALAPPDATA%\CompanionMap` (moved there automatically from `CDLiveMapStandalone`, the app's earlier name).
 - Nothing is sent to the internet. Devices talk only to your PC, **over your local network**.
 - Game files are only read, never changed. Imported maps and the game's marker icons are for your

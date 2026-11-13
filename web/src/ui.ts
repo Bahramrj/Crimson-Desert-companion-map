@@ -21,6 +21,7 @@ const PATHS = {
   follow: "M12 3.5 19 20l-7-3.6L5 20z",
   free: "M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M9 5l3-2.5L15 5M9 19l3 2.5 3-2.5M5 9l-2.5 3L5 15M19 9l2.5 3L19 15",
   recenter: "M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M12 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
+  compass: "M12 3.5 15.5 12 12 20.5 8.5 12zM8.5 12h7",
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
   realm: "M12 3 3 7.5l9 4.5 9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5",
@@ -28,6 +29,13 @@ const PATHS = {
   profiles: "M7 3.5h10a1 1 0 0 1 1 1V21l-6-4-6 4V4.5a1 1 0 0 1 1-1z",
   settings: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4",
   close: "M6.5 6.5l11 11M17.5 6.5l-11 11",
+  check: "M5 12.5l4.5 4.5L19 7.5",
+  route: "M5 19 19 5M19 5h-8M19 5v8",
+  edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+  trash: "M5 7h14M10 7V4.5h4V7M7 7l1 13h8l1-13",
+  copy: "M9 9h10v11H9zM5 15V4h10",
+  pin: "M12 21s-6.5-5.800-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11zM12 7.5v5M9.5 10h5",
+  ruler: "M4 16 16 4l4 4L8 20zM9 11l2 2M12 8l2 2",
 } as const;
 
 export type IconName = keyof typeof PATHS;

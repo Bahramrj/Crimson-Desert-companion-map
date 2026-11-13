@@ -27,8 +27,10 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from gamedata import levels, regions
 from gamedata.archive import ArchiveError
+from gamedata.timing import timed
 from mapstore import georef as geo
-from mapstore.tiler import TILE
+from mapstore.store import summary
+from mapstore.tiler import TILE, Flat
 
 log = logging.getLogger("cdlivemap.gamedata")
 
@@ -200,17 +202,34 @@ def island_points(archive, failures=None):
     return out
 
 
+LINK_CELLS = 4               # the neighbour search grid: cells of reach / 4
+
+
 def _links(pts, reach, count=2):
     """Each point joined to its `count` nearest neighbours within `reach`, so the pieces of a
-    bridge form a chain (a grid keeps this linear)."""
+    bridge form a chain. Points sit in a grid of small cells, searched ring by ring around the
+    point; the search stops once the nearest ones found are closer than any cell not yet looked at
+    (islands are dense: looking at every point within reach would be hundreds per point)."""
+    cell = reach / LINK_CELLS
     grid = defaultdict(list)
     for i, (x, z) in enumerate(pts):
-        grid[(int(x // reach), int(z // reach))].append(i)
+        grid[(int(x // cell), int(z // cell))].append(i)
+    limit = reach * reach
     for i, (x, z) in enumerate(pts):
-        cx, cz = int(x // reach), int(z // reach)
-        near = sorted(((pts[j][0] - x) ** 2 + (pts[j][1] - z) ** 2, j)
-                      for gx in (cx - 1, cx, cx + 1) for gz in (cz - 1, cz, cz + 1) for j in grid.get((gx, gz), ()))
-        for d, j in [n for n in near if 0 < n[0] < reach * reach][:count]:
+        cx, cz = int(x // cell), int(z // cell)
+        near = []
+        for ring in range(LINK_CELLS + 2):               # a point within reach is at most LINK_CELLS + 1 cells away
+            for gx in range(cx - ring, cx + ring + 1):
+                edge_column = abs(gx - cx) == ring
+                for gz in (range(cz - ring, cz + ring + 1) if edge_column else (cz - ring, cz + ring)):
+                    for j in grid.get((gx, gz), ()):
+                        d = (pts[j][0] - x) ** 2 + (pts[j][1] - z) ** 2
+                        if 0 < d < limit:
+                            near.append((d, j))
+            sure = (ring * cell) ** 2                      # everything in the rings still to come is further than this
+            if sum(d <= sure for d, _ in near) >= count:
+                break
+        for d, j in sorted(near)[:count]:
             yield pts[i], pts[j]
 
 
@@ -253,26 +272,51 @@ def _crop(layer, tx, ty, scale, precise=False):
     return big.crop((ox, oy, ox + TILE, oy + TILE))
 
 
+def _peak(layer, tx, ty, scale):
+    """(lowest, highest) source value under output tile (tx, ty), with the margin _crop reads. Bilinear
+    upsampling stays inside this range, so it tells whether a layer can draw anything in the tile."""
+    src = TILE / scale
+    x0, y0 = tx * src, ty * src
+    return layer.crop((math.floor(x0) - 2, math.floor(y0) - 2, math.ceil(x0 + src) + 2, math.ceil(y0 + src) + 2)).getextrema()
+
+
+def _edge_floor(key, scale):
+    """Source values up to this draw nothing for any edge of layer `key` (see edge())."""
+    return min(iso - max(0.5, px * SDF_GRADIENT / scale) / 2 for iso, _, px in EDGES[key])
+
+
 def _ink(base, color, alpha):
     base.paste(color, (0, 0, TILE, TILE), alpha)
 
 
-def pywel_renderer(layers, scale):
+DAY = {"sea": SEA, "paper": PAPER, "contour": CONTOUR, "ridge": RIDGE, "wagon": WAGON, "road": ROAD, "border": BORDER}
+# For play in a dark room: dark land, darker sea, roads as the light lines.
+NIGHT = {"sea": (15, 24, 36), "paper": (44, 42, 38), "contour": (82, 72, 58), "ridge": (100, 90, 76), "wagon": (150, 112, 70),
+         "road": (204, 176, 128), "border": (160, 72, 72)}
+
+
+def pywel_renderer(layers, scale, colors=DAY):
     def edges(key, tx, ty):
         t = _crop(layers[key], tx, ty, scale, precise=True)
         return [edge(t, iso, scale, strength, px) for iso, strength, px in EDGES[key]]
 
+    floors = {key: _edge_floor(key, scale) for key in EDGES}
+
     def render(tx, ty):
+        # Open sea (most of the map since 2.04): no land, mountain or road value reaches its edge, and the
+        # height tint and province borders only show on land. One flat tile instead of five layers.
+        if all(_peak(layers[key], tx, ty, scale)[1] <= floor for key, floor in floors.items()):
+            return Flat(colors["sea"])
         land = edges("land", tx, ty)[0]
-        out = Image.new("RGB", (TILE, TILE), SEA)
-        _ink(out, PAPER, land)
-        _ink(out, CONTOUR, ImageChops.multiply(_crop(layers["height"], tx, ty, scale).point(LUT["height"]), land))
+        out = Image.new("RGB", (TILE, TILE), colors["sea"])
+        _ink(out, colors["paper"], land)
+        _ink(out, colors["contour"], ImageChops.multiply(_crop(layers["height"], tx, ty, scale).point(LUT["height"]), land))
         for alpha in edges("mountain", tx, ty):
-            _ink(out, RIDGE, alpha)
-        _ink(out, WAGON, edges("wagon", tx, ty)[0])
-        _ink(out, ROAD, edges("road", tx, ty)[0])
+            _ink(out, colors["ridge"], alpha)
+        _ink(out, colors["wagon"], edges("wagon", tx, ty)[0])
+        _ink(out, colors["road"], edges("road", tx, ty)[0])
         if "border" in layers:
-            _ink(out, BORDER, ImageChops.multiply(_crop(layers["border"], tx, ty, scale).point(LUT["border"]), land))
+            _ink(out, colors["border"], ImageChops.multiply(_crop(layers["border"], tx, ty, scale).point(LUT["border"]), land))
         return out
     return render
 
@@ -284,7 +328,12 @@ def abyss_renderer(layers, scale):
     b = [round(30 + v * 0.20) for v in range(256)]
     islands = layers.get("islands")
 
+    island_floor = next(v for v in range(255, -1, -1) if LUT["island"][v] == 0 and LUT["island_core"][v] == 0)
+
     def render(tx, ty):
+        lo, hi = _peak(layers["abyss"], tx, ty, scale)
+        if lo == hi and (islands is None or _peak(islands, tx, ty, scale)[1] <= island_floor):
+            return Flat((r[lo], g[lo], b[lo]))               # an even stretch of background, no island
         t = _crop(layers["abyss"], tx, ty, scale)
         out = Image.merge("RGB", (t.point(r), t.point(g), t.point(b)))
         if islands is not None:
@@ -294,6 +343,27 @@ def abyss_renderer(layers, scale):
             _ink(out, ISLAND, core)
         return out
     return render
+
+
+ROAD_CELL = 5                 # one cell of the road grid is this many layer pixels (12 m from 2.04)
+ROAD_SEA, ROAD_LAND, ROAD_ROAD = 0, 128, 255
+
+
+def road_grid(layers):
+    """PNG bytes of a small grid for routes along the roads (web/src/roads.ts): per cell sea, land or
+    road. A cell is road when any of its pixels is on a road or wagon road, land when most of it is."""
+    def above(layer, iso):
+        return layer.point(lambda v: 255 if v > iso else 0)
+    n = layers["land"].width // ROAD_CELL
+    land = above(layers["land"], EDGES["land"][0][0]).resize((n, n), Image.BOX).point(lambda v: 255 if v >= 128 else 0)
+    roads = ImageChops.lighter(above(layers["road"], EDGES["road"][0][0]), above(layers["wagon"], EDGES["wagon"][0][0]))
+    roads = roads.resize((n, n), Image.BOX).point(lambda v: 255 if v else 0)
+    grid = Image.new("L", (n, n), ROAD_SEA)
+    grid.paste(ROAD_LAND, (0, 0, n, n), land)
+    grid.paste(ROAD_ROAD, (0, 0, n, n), roads)
+    out = io.BytesIO()
+    grid.save(out, "PNG", optimize=True)
+    return out.getvalue()
 
 
 RENDERERS = {"pywel": pywel_renderer, "abyss": abyss_renderer}
@@ -316,36 +386,87 @@ def scale_for(quality, realm):
     return QUALITY[quality][realm]
 
 
-def import_basemap(archive, store, realm, scale=2, progress=None):
+RENDER_VERSION = 1            # raise when the renderer changes what a map looks like: unchanged maps are then made again
+
+
+def unchanged_map(store, realm, made):
+    """The realm's game map if it was made exactly like `made` (and its night look is there when asked for), else None."""
+    maps = game_maps(store, realm)
+    day = [m for m in maps if not m.get("style") and m.get("render") == made]
+    night = [m for m in maps if m.get("style") == "night" and m.get("render") == made]
+    return day[0] if len(day) == 1 and len(maps) == 1 + bool(made["night"]) and len(night) == bool(made["night"]) else None
+
+
+def import_basemap(archive, store, realm, scale=2, progress=None, night=True, force=False):
     """Render one realm's basemap into the asset store, replacing the previous game import.
-    Returns (summary, failures); failures lists tiles that could not be read."""
+    `night` also renders Pywel in night colours as a second map (style "night"; devices switch to it with
+    "Night colours"). Returns (summary, failures); failures lists tiles that could not be read."""
     if scale not in SCALES:
         raise ValueError(f"scale must be one of {SCALES}")
     failures = []
     found = layer_set(archive)
-    layers = {k: load_layer(archive, k, failures, found) for k in REALM_LAYERS[realm]}
+    made = {"version": RENDER_VERSION, "game": archive.version(), "layers": found.suffix, "scale": scale,
+            "night": bool(night and realm == "pywel")}
+    same = None if force else unchanged_map(store, realm, made)
+    if same:                           # same game version, same renderer, same quality: nothing to do (`force` renders anyway)
+        log.info("%s basemap %s is up to date (game %s): not rendered again", realm, same["id"], made["game"])
+        if progress:
+            progress(1, 1)
+        return summary(same), failures
+    with timed(f"{realm}: map layers"):
+        layers = {k: load_layer(archive, k, failures, found) for k in REALM_LAYERS[realm]}
     if realm == "pywel":
         try:
-            bitmap = regions.load(archive)
-            if bitmap is not None:
-                layers["border"] = regions.border_layer(bitmap, found.size, found.world)
+            with timed("pywel: province borders"):
+                bitmap = regions.load(archive)
+                if bitmap is not None:
+                    layers["border"] = regions.border_layer(bitmap, found.size, found.world)
         except (ArchiveError, OSError, ValueError) as e:   # borders are a nicety
             log.warning("province borders unavailable: %s", e)
             failures.append(f"borders: {e}")
     if realm == "abyss":
         try:
-            layers["islands"] = island_layer(archive, failures, found)
+            with timed("abyss: islands from the level files"):
+                layers["islands"] = island_layer(archive, failures, found)
         except (ArchiveError, OSError, ValueError) as e:   # the hex background still makes a map
             log.warning("Abyss islands unavailable: %s", e)
             failures.append(f"islands: {e}")
+    extras = {}
+    if realm == "pywel":
+        try:
+            with timed("pywel: road grid"):
+                extras["roads.png"] = road_grid(layers)
+        except (OSError, ValueError, KeyError) as e:        # routes then go in a straight line
+            log.warning("road grid unavailable: %s", e)
+            failures.append(f"roads: {e}")
     previous = game_maps(store, realm)
     size = found.size * scale
-    summary = store.import_rendered(
-        RENDERERS[realm](layers, scale), (size, size), realm, NAMES[realm], source="A",
-        licence="rendered from your own Crimson Desert install; personal use, do not share",
-        game_version=archive.version(), fixed_georef=geo.world_georef(size, found.world), progress=progress,
-        quality=WEBP_QUALITY)
+    licence = "rendered from your own Crimson Desert install; personal use, do not share"
+    night = night and realm == "pywel"
+    if night:                      # first, so the day map is the newest one of the realm
+        with timed("pywel: night tiles"):
+            dark = store.import_rendered(
+                pywel_renderer(layers, scale, NIGHT), (size, size), realm, "Pywel at night (game map)", source="A", licence=licence,
+                game_version=archive.version(), fixed_georef=geo.world_georef(size, found.world), quality=WEBP_QUALITY, style="night",
+                made=made,
+                progress=progress and (lambda done, total: progress(done, 2 * total)))
+    try:
+        with timed(f"{realm}: tiles"):
+            done = _day_map(store, RENDERERS[realm](layers, scale), size, realm, licence, archive, found, progress, night, extras, made)
+    except BaseException:              # cancelled or failed: the night map made a moment ago goes too
+        if night:
+            store.delete(dark["id"])
+        raise
     for old in previous:
         store.delete(old["id"])
-    log.info("Imported %s basemap %s (game %s, %d unreadable tiles)", realm, summary["id"], summary["gameVersion"], len(failures))
-    return summary, failures
+    log.info("Imported %s basemap %s (game %s, %d unreadable tiles)", realm, done["id"], done["gameVersion"], len(failures))
+    return done, failures
+
+
+def _day_map(store, render, size, realm, licence, archive, found, progress, night, extras, made):
+    """The realm's map as it is shown by default; after a night map, its tiles are the second half of the progress."""
+    return store.import_rendered(
+        render, (size, size), realm, NAMES[realm], source="A",
+        licence=licence, game_version=archive.version(), fixed_georef=geo.world_georef(size, found.world),
+        progress=progress and ((lambda done, total: progress(total + done, 2 * total)) if night else progress),
+        quality=WEBP_QUALITY, extras=extras, made=made)
